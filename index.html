@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dither - mikemadeit.io</title>
+<meta name="description" content="Drop in a photo and turn it into a two-colour dithered image. Export as SVG or PNG.">
+<meta name="theme-color" content="#111214">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #111214;
+    --surface: #1a1b1e;
+    --surface-2: #232428;
+    --line: #2e3034;
+    --text: #ecedeb;
+    --muted: #9a9c98;
+    --accent: #d3d4d1;
+    --f: "Geist", system-ui, sans-serif;
+    --mono: "Geist Mono", ui-monospace, monospace;
+    --blob-a: 58% 42% 51% 49% / 46% 55% 45% 54%;
+    --blob-b: 44% 56% 39% 61% / 57% 41% 59% 43%;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }   /* "hidden" must win over component display rules */
+  html { color-scheme: dark; background: var(--bg); }
+  body {
+    font-family: var(--f); color: var(--text); background: var(--bg);
+    min-height: 100dvh; display: flex; flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* ---------- Top bar ---------- */
+  .bar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px clamp(16px, 3vw, 32px);
+  }
+  .bar .home { color: var(--muted); text-decoration: none; font-size: .9rem; transition: color .2s; }
+  .bar .home:hover { color: var(--text); }
+  .bar h1 { font-size: 1.05rem; font-weight: 600; letter-spacing: -.01em; margin-right: auto; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface); cursor: pointer; font-size: .9rem; font-weight: 500;
+    transition: background-color .2s, border-color .2s, transform .1s;
+  }
+  .btn:hover { background: var(--surface-2); border-color: #3c3e43; }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .btn.primary:hover { background: #fff; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ---------- Layout ---------- */
+  .studio {
+    flex: 1; min-height: 0;
+    display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px;
+    padding: 0 clamp(16px, 3vw, 32px) clamp(16px, 3vw, 32px);
+  }
+  .stage {
+    position: relative; min-height: 60dvh;
+    display: grid; place-items: center;
+    border-radius: 36px 48px 40px 52px / 44px 36px 52px 40px;
+    background: radial-gradient(120% 90% at 30% 20%, #17181b, #0d0e10);
+    overflow: hidden;
+    transition: box-shadow .2s;
+  }
+  .stage.dragging { box-shadow: inset 0 0 0 2px var(--accent); }
+  #out { display: none; image-rendering: pixelated; image-rendering: crisp-edges; }
+  #out, #srcView { grid-area: 1 / 1; }
+  #srcView { display: none; cursor: crosshair; touch-action: none; }
+  .stage.sampling #srcView { display: block; }
+  .stage.sampling #out { visibility: hidden; }
+  .sample-hint {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    padding: 8px 14px; border-radius: 999px; background: rgba(17,18,20,.85);
+    font-size: .85rem; color: var(--text); pointer-events: none; white-space: nowrap;
+  }
+  .loupe {
+    position: absolute; pointer-events: none; z-index: 5;
+    display: grid; justify-items: center; gap: 6px;
+  }
+  .loupe canvas {
+    width: 132px; height: 132px; image-rendering: pixelated;
+    border-radius: 44% 56% 50% 50% / 52% 46% 54% 48%;
+    box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px rgba(255,255,255,.35), 0 12px 30px rgba(0,0,0,.5);
+  }
+  .loupe span {
+    font-family: var(--mono); font-size: .78rem; padding: 3px 9px; border-radius: 999px;
+    background: var(--bg); color: var(--text);
+  }
+  .cp.sampling { visibility: hidden; }
+
+  /* ---------- Fade: two draggable bars over the preview ---------- */
+  .fadebars { position: absolute; z-index: 4; pointer-events: none; }
+  .fadebar {
+    position: absolute; left: -10px; right: -10px; height: 0;
+    border-top: 2px dashed #fff; filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+    pointer-events: auto; cursor: ns-resize; touch-action: none;
+  }
+  .fadebar::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 24px; }   /* easy grab area */
+  .fadebar span {
+    position: absolute; right: 0; top: 0; transform: translateY(-50%);
+    padding: 5px 12px; border-radius: 999px; background: var(--text); color: var(--bg);
+    font-size: .76rem; font-weight: 500; white-space: nowrap; filter: none;
+  }
+  .fadebar:focus-visible { outline: none; }
+  .fadebar:focus-visible span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .fadeband { position: absolute; left: 0; right: 0; background: rgba(255,255,255,.06); pointer-events: none; }
+
+  .switch { position: relative; display: inline-flex; cursor: pointer; }
+  .switch input { position: absolute; opacity: 0; pointer-events: none; }
+  .switch .track { width: 40px; height: 24px; border-radius: 999px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); transition: background-color .2s; }
+  .switch .track::after { content: ""; position: absolute; top: 4px; left: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .2s, background-color .2s; }
+  .switch input:checked + .track { background: var(--text); }
+  .switch input:checked + .track::after { transform: translateX(16px); background: var(--bg); }
+  .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .fade-opts { display: grid; gap: 12px; }
+  .fade-into { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); }
+  .fade-into button {
+    width: 28px; height: 26px; border: 0; cursor: pointer; background: var(--c);
+    border-radius: var(--blob-a); box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); transition: transform .15s;
+  }
+  .fade-into button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+  .fade-into button:hover { transform: scale(1.1); }
+  .note { font-size: .82rem; line-height: 1.5; color: var(--muted); }
+  .pre-note { padding: 12px 14px; border-radius: 18px 14px 20px 16px; background: var(--surface-2); color: var(--text); }
+  .panel .off { opacity: .4; pointer-events: none; }   /* out of the way while picking from the photo */
+  .stage.has-image #out { display: block; }
+  .stage.has-image .drop { display: none; }
+  .info {
+    position: absolute; left: 22px; bottom: 18px;
+    font-family: var(--mono); font-size: .75rem; color: var(--muted);
+  }
+
+  /* Empty state: a slowly morphing blob */
+  .drop {
+    display: grid; place-items: center; text-align: center; gap: 14px;
+    width: min(420px, 80%); aspect-ratio: 1.2;
+    padding: 40px;
+    background: var(--surface);
+    border-radius: var(--blob-a);
+    animation: morph 14s ease-in-out infinite alternate;
+  }
+  .drop h2 { font-size: 1.4rem; font-weight: 600; letter-spacing: -.02em; }
+  .drop p { color: var(--muted); font-size: .92rem; line-height: 1.5; max-width: 30ch; }
+  @keyframes morph { to { border-radius: var(--blob-b); } }
+
+  /* ---------- Controls ---------- */
+  .panel {
+    align-self: start;
+    display: flex; flex-direction: column; gap: 26px;
+    padding: 26px 24px 28px;
+    background: var(--surface);
+    border-radius: 34px 26px 38px 30px / 28px 36px 30px 40px;
+  }
+  .group h3 { font-size: .8rem; font-weight: 500; color: var(--muted); margin-bottom: 12px; }
+
+  .group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .group-head h3 { margin: 0; }
+  .group-head h3 span { color: #6f716d; font-weight: 400; }
+  .mini { display: flex; gap: 6px; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line);
+    background: transparent; cursor: pointer; line-height: 1; font-size: 1rem; color: var(--muted);
+    transition: background-color .2s, color .2s, transform .3s;
+  }
+  .icon-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+  .icon-btn:disabled { opacity: .3; cursor: not-allowed; }
+  #reverse:hover { transform: rotate(180deg); }
+
+  .colors { display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 10px; }
+  .swatch { position: relative; display: grid; gap: 6px; justify-items: center; }
+  .swatch span { font-family: var(--mono); font-size: .7rem; color: var(--muted); }
+  .blob {
+    width: 100%; max-width: 64px; aspect-ratio: 1.1;
+    background: var(--c);
+    border: 0; cursor: pointer;
+    border-radius: var(--blob-a);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+    transition: border-radius .6s ease, transform .2s;
+  }
+  .swatch:nth-child(even) .blob { border-radius: var(--blob-b); }
+  .blob:hover { border-radius: var(--blob-b); transform: scale(1.05); }
+  .swatch:nth-child(even) .blob:hover { border-radius: var(--blob-a); }
+  .remove {
+    position: absolute; top: -6px; right: calc(50% - 38px);
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--muted);
+    font-size: .85rem; line-height: 1; cursor: pointer;
+    opacity: 0; transition: opacity .15s, color .15s;
+  }
+  .swatch:hover .remove, .remove:focus-visible { opacity: 1; }
+  .remove:hover { color: var(--text); }
+  @media (hover: none) { .remove { opacity: 1; } }
+
+  .patterns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .patterns label { cursor: pointer; }
+  .patterns input { position: absolute; opacity: 0; pointer-events: none; }
+  .patterns span {
+    display: inline-block; padding: 7px 12px; border-radius: 999px;
+    background: var(--surface-2); font-size: .82rem; color: var(--muted);
+    transition: background-color .2s, color .2s;
+  }
+  .patterns input:checked + span { background: var(--text); color: var(--bg); }
+  .patterns input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .slider { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; }
+  .slider + .slider { margin-top: 16px; }
+  .slider label { font-size: .9rem; }
+  .slider output { font-family: var(--mono); font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type=range] { grid-column: 1 / -1; width: 100%; -webkit-appearance: none; appearance: none; background: transparent; height: 22px; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 99px; background: var(--track, var(--surface-2)); }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 99px; background: var(--track, var(--surface-2)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%; background: var(--text); border: 3px solid var(--bg); }
+  input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--text); border: 3px solid var(--bg); }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .actions select { font-size: .85rem;
+    padding: 9px 12px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--text);
+  }
+  .link { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: .85rem; text-decoration: underline; text-underline-offset: 3px; }
+  .link:hover { color: var(--text); }
+
+  /* ---------- Colour picker popover ---------- */
+  .cp {
+    position: fixed; z-index: 50; width: 288px;
+    display: grid; gap: 14px; padding: 18px;
+    background: #202125; border: 1px solid var(--line);
+    border-radius: 28px 22px 30px 24px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  }
+  .cp[hidden] { display: none; }
+  .cp-head { display: flex; justify-content: space-between; align-items: center; }
+  .cp-title { font-size: .9rem; font-weight: 500; }
+  .cp-close { background: none; border: 0; font-size: 1.4rem; line-height: 1; color: var(--muted); cursor: pointer; width: 28px; height: 28px; border-radius: 50%; }
+  .cp-close:hover { background: var(--surface-2); color: var(--text); }
+  .cp-sv {
+    position: relative; height: 170px; border-radius: 16px; cursor: crosshair; touch-action: none;
+    background:
+      linear-gradient(to top, #000, transparent),
+      linear-gradient(to right, #fff, transparent),
+      var(--hue, red);
+  }
+  .cp-sv-thumb {
+    position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    transform: translate(-50%, -50%);
+    border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 2px 6px rgba(0,0,0,.4);
+    pointer-events: none;
+  }
+  .cp-hue { --track: linear-gradient(90deg, red, #ff0, lime, cyan, blue, #f0f, red); height: 18px; }
+  .cp-row { display: flex; align-items: center; gap: 10px; }
+  .cp-preview { width: 34px; height: 34px; border-radius: var(--blob-a); flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+  .cp-hexlabel { flex: 1; display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--muted); }
+  .cp-hex, .cp-num {
+    width: 100%; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--bg); font-family: var(--mono); font-size: .85rem;
+  }
+  .cp-hex[aria-invalid] { border-color: #c95454; }
+  .cp-eye { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: transparent; cursor: pointer; display: grid; place-items: center; color: var(--muted); }
+  .cp-eye:hover { color: var(--text); background: var(--surface-2); }
+  .cp-chan { display: grid; grid-template-columns: 14px 1fr 62px; gap: 10px; align-items: center; }
+  .cp-chan span { font-family: var(--mono); font-size: .78rem; color: var(--muted); }
+  .cp-chan input[type=range] { grid-column: auto; }
+  .cp-num { padding: 5px 8px; }
+  .cp-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+  .cp-swatch { width: 26px; height: 24px; border: 0; cursor: pointer; background: var(--c); border-radius: var(--blob-b); box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); transition: transform .15s; }
+  .cp-swatch:hover { transform: scale(1.15); }
+
+  @media (max-width: 900px) {
+    .studio { grid-template-columns: 1fr; }
+    .stage { min-height: 52dvh; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .drop { animation: none; }
+    *, *::before, *::after { transition-duration: 0s !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <a class="home" href="/">&larr; mikemadeit.io</a>
+  <h1>Dither</h1>
+  <button class="btn" id="exportPng" type="button" disabled>PNG</button>
+  <button class="btn primary" id="exportSvg" type="button" disabled>Export SVG</button>
+</header>
+
+<main class="studio" id="main">
+  <section class="stage" id="stage" aria-label="Preview">
+    <div class="drop">
+      <div>
+        <h2>Drop a photo here</h2>
+        <p>Or paste one, or choose a file. It never leaves your browser.</p>
+      </div>
+      <button class="btn primary" id="choose" type="button">Choose a photo</button>
+      <input id="file" type="file" accept="image/*" hidden>
+    </div>
+    <canvas id="out" role="img" aria-label="Dithered preview"></canvas>
+    <canvas id="srcView" aria-label="Original photo: click to pick a colour"></canvas>
+    <p class="sample-hint" id="sampleHint" hidden>Click the photo to pick a colour. Esc to cancel.</p>
+    <div class="loupe" id="loupe" hidden><canvas width="132" height="132"></canvas><span></span></div>
+    <p class="info" id="info" aria-live="polite"></p>
+    <div class="fadebars" id="fadeBars" hidden>
+      <div class="fadeband" id="fadeBand"></div>
+      <div class="fadebar" id="barA" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100"><span>Fade starts</span></div>
+      <div class="fadebar" id="barB" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100"><span>Solid</span></div>
+    </div>
+  </section>
+
+  <aside class="panel" aria-label="Settings">
+    <p class="note pre-note" id="preNote" hidden>This image is already dithered, so its own pixels are used as they are. Pattern and tone sliders are off; you can still recolour it and add a fade.</p>
+    <div class="group">
+      <div class="group-head">
+        <h3 id="colorsLabel">Colours <span>dark to light</span></h3>
+        <div class="mini">
+          <button class="icon-btn" id="reverse" type="button" aria-label="Reverse colour order" title="Reverse order">&#8646;</button>
+          <button class="icon-btn" id="addColor" type="button" aria-label="Add a colour" title="Add a colour (up to 4)">+</button>
+        </div>
+      </div>
+      <div class="colors" id="colors" role="list" aria-labelledby="colorsLabel"></div>
+    </div>
+
+    <div class="group" id="patternGroup">
+      <h3>Pattern</h3>
+      <div class="patterns" role="radiogroup" aria-label="Dither pattern">
+        <label><input type="radio" name="algo" value="bayer2"><span>Bayer 2</span></label>
+        <label><input type="radio" name="algo" value="bayer4"><span>Bayer 4</span></label>
+        <label><input type="radio" name="algo" value="bayer8"><span>Bayer 8</span></label>
+        <label><input type="radio" name="algo" value="floyd"><span>Floyd-Steinberg</span></label>
+        <label><input type="radio" name="algo" value="atkinson"><span>Atkinson</span></label>
+        <label><input type="radio" name="algo" value="threshold"><span>Threshold</span></label>
+      </div>
+    </div>
+
+    <div class="group" id="sliderGroup">
+      <div class="slider"><label for="cols">Pixel density</label><output id="colsOut" for="cols"></output><input id="cols" type="range" min="32" max="1600" step="8"></div>
+      <div class="slider"><label for="brightness">Brightness</label><output id="brightnessOut" for="brightness"></output><input id="brightness" type="range" min="-60" max="60" step="1"></div>
+      <div class="slider"><label for="contrast">Contrast</label><output id="contrastOut" for="contrast"></output><input id="contrast" type="range" min="-80" max="100" step="1"></div>
+      <div class="slider"><label for="gamma">Gamma</label><output id="gammaOut" for="gamma"></output><input id="gamma" type="range" min="0.3" max="2.5" step="0.05"></div>
+      <div class="slider"><label for="sharpen">Sharpen</label><output id="sharpenOut" for="sharpen"></output><input id="sharpen" type="range" min="0" max="3" step="0.1"></div>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <h3 id="fadeLabel">Fade</h3>
+        <label class="switch"><input type="checkbox" id="fadeOn" aria-labelledby="fadeLabel"><span class="track" aria-hidden="true"></span></label>
+      </div>
+      <div class="fade-opts" id="fadeOpts" hidden>
+        <div class="patterns" role="radiogroup" aria-label="Edge to fade">
+          <label><input type="radio" name="fadeEdge" value="bottom"><span>Bottom edge</span></label>
+          <label><input type="radio" name="fadeEdge" value="top"><span>Top edge</span></label>
+        </div>
+        <div class="fade-into" id="fadeInto"><span>Into</span></div>
+        <p class="note">Drag the two bars on the image: where the fade starts, and where it turns solid.</p>
+      </div>
+    </div>
+
+    <div class="group actions">
+      <label class="visually-hidden" for="pngScale">PNG scale</label>
+      <select id="pngScale" aria-label="PNG export scale">
+        <option value="1">PNG 1x</option><option value="2">PNG 2x</option>
+        <option value="4" selected>PNG 4x</option><option value="8">PNG 8x</option>
+      </select>
+      <button class="link" id="reset" type="button">Reset sliders</button>
+      <button class="link" id="replace" type="button" hidden>Use a different photo</button>
+    </div>
+  </aside>
+</main>
+
+<script src="dither-core.js?v=202610012031"></script>
+<script src="picker.js?v=202610012008"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var DEFAULTS = { colors: ["#2c2d30", "#d3d4d1"], algo: "floyd", cols: 480, brightness: 0, contrast: 10, gamma: 1, sharpen: 0.6,
+                   fade: { on: false, edge: "bottom", a: 0.62, b: 0.96, color: 0 } };
+  var KEY = "dither-settings";
+  var s = Object.assign({}, DEFAULTS);
+  try { Object.assign(s, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+  if (s.ink && s.paper && !Array.isArray(s.colors)) s.colors = [s.ink, s.paper];   // older 2-colour settings
+  delete s.ink; delete s.paper;
+  if (!Array.isArray(s.colors) || s.colors.length < 2) s.colors = DEFAULTS.colors.slice();
+  s.fade = Object.assign({}, DEFAULTS.fade, s.fade || {});
+
+  var source = null;   // full-res pixels of the original, for the eyedropper
+  var pre = null;      // an already-dithered image: { w, h, idx, palette } used pixel-for-pixel
+  function pal() { return pre ? pre.palette : s.colors; }
+  var img = null, fileName = "image", sampled = null, sampledCols = 0, bits = null, dims = null, queued = false;
+  var stage = $("stage"), out = $("out");
+
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+  // ---- render pipeline (sampling is cached; only redone when density/photo changes) ----
+  function render() {
+    queued = false;
+    if (!img) return;
+    var base;
+    if (pre) {
+      base = pre.idx; dims = { w: pre.w, h: pre.h };
+    } else {
+      if (!sampled || sampledCols !== s.cols) { sampled = DitherCore.sample(img, s.cols); sampledCols = s.cols; }
+      var L = DitherCore.adjust(sampled, s);
+      base = DitherCore.dither(L, sampled.w, sampled.h, s.algo, s.colors.length);
+      dims = { w: sampled.w, h: sampled.h };
+    }
+    var P = pal();
+    bits = s.fade.on
+      ? DitherCore.fade(base, dims.w, dims.h, { edge: s.fade.edge, a: s.fade.a, b: s.fade.b, color: Math.min(s.fade.color, P.length - 1) })
+      : base;
+    DitherCore.paint(out, bits, dims.w, dims.h, P);
+    fit();
+    $("info").textContent = dims.w + " \u00d7 " + dims.h + " dots" + (pre ? ", using the image's own pixels" : "");
+  }
+  function queue() { if (!queued) { queued = true; requestAnimationFrame(render); } }
+
+  // Fit the preview to the stage by the photo's own aspect ratio, so its on-screen size
+  // stays locked while the pixel density changes (only the dots get finer or coarser).
+  function fit() {
+    if (!img) return;
+    var r = stage.getBoundingClientRect(), pad = 48;
+    var aspect = img.naturalWidth / img.naturalHeight;
+    var w = Math.min(r.width - pad, (r.height - pad) * aspect);
+    out.style.width = $("srcView").style.width = Math.round(w) + "px";
+    out.style.height = $("srcView").style.height = Math.round(w / aspect) + "px";
+    placeBars();
+  }
+  if ("ResizeObserver" in window) new ResizeObserver(fit).observe(stage);
+
+  // ---- controls ----
+  var fmt = {
+    cols: function (v) { return v + " across"; },
+    brightness: function (v) { return (v > 0 ? "+" : "") + v; },
+    contrast: function (v) { return (v > 0 ? "+" : "") + v; },
+    gamma: function (v) { return (+v).toFixed(2); },
+    sharpen: function (v) { return (+v).toFixed(1); }
+  };
+  Object.keys(fmt).forEach(function (k) {
+    var inp = $(k);
+    inp.addEventListener("input", function () { s[k] = +inp.value; $(k + "Out").textContent = fmt[k](s[k]); save(); queue(); });
+  });
+  document.querySelectorAll('input[name=algo]').forEach(function (r) {
+    r.addEventListener("change", function () { s.algo = r.value; save(); queue(); });
+  });
+
+  function syncControls() {
+    Object.keys(fmt).forEach(function (k) { $(k).value = s[k]; $(k + "Out").textContent = fmt[k](s[k]); });
+    var r = document.querySelector('input[name=algo][value="' + s.algo + '"]'); if (r) r.checked = true;
+    renderColors();
+    syncFade();
+  }
+
+  // ---- colours: 2-4 blobs, darkest tone first ----
+  function mix(a, b) {
+    var x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16), o = "#";
+    [16, 8, 0].forEach(function (sh) { o += Math.round((((x >> sh) & 255) + ((y >> sh) & 255)) / 2).toString(16).padStart(2, "0"); });
+    return o;
+  }
+  function role(i, n) { return i === 0 ? "darkest" : i === n - 1 ? "lightest" : "midtone"; }
+  function renderColors() {
+    var box = $("colors"), P = pal(), n = P.length;
+    box.style.setProperty("--n", n);
+    box.innerHTML = "";
+    P.forEach(function (hex, i) {
+      var sw = document.createElement("div");
+      sw.className = "swatch"; sw.setAttribute("role", "listitem");
+      var b = document.createElement("button");
+      b.className = "blob"; b.type = "button"; b.style.setProperty("--c", hex);
+      b.setAttribute("aria-haspopup", "dialog"); b.setAttribute("aria-expanded", "false");
+      b.setAttribute("aria-label", "Colour " + (i + 1) + " of " + n + ", " + role(i, n) + ", " + hex);
+      b.addEventListener("click", function () {
+        ColorPicker.open(b, P[i], function (h) {
+          P[i] = h; b.style.setProperty("--c", h); sw.querySelector("span").textContent = h; renderFadeInto();
+          b.setAttribute("aria-label", "Colour " + (i + 1) + " of " + n + ", " + role(i, n) + ", " + h);
+          save(); queue();
+        }, "Colour " + (i + 1) + " (" + role(i, n) + ")");
+      });
+      var t = document.createElement("span"); t.textContent = hex;
+      sw.append(b, t);
+      if (n > 2 && !pre) {
+        var x = document.createElement("button");
+        x.className = "remove"; x.type = "button"; x.innerHTML = "&times;";
+        x.setAttribute("aria-label", "Remove colour " + (i + 1) + " (" + hex + ")");
+        x.addEventListener("click", function () { s.colors.splice(i, 1); renderColors(); save(); queue(); });
+        sw.append(x);
+      }
+      box.append(sw);
+    });
+    $("addColor").disabled = n >= 4 || !!pre;
+    $("reverse").disabled = !!pre;
+    renderFadeInto();
+  }
+  // A new colour goes in as a midtone, blended from the two lightest neighbours.
+  $("addColor").addEventListener("click", function () {
+    var n = s.colors.length; if (n >= 4 || pre) return;
+    s.colors.splice(n - 1, 0, mix(s.colors[n - 2], s.colors[n - 1]));
+    renderColors(); save(); queue();
+  });
+  $("reverse").addEventListener("click", function () { if (pre) return; s.colors.reverse(); renderColors(); save(); queue(); });
+
+  // ---- fade ----
+  function renderFadeInto() {
+    var box = $("fadeInto"), P = pal();
+    box.querySelectorAll("button").forEach(function (b) { b.remove(); });
+    var c = Math.min(s.fade.color, P.length - 1);
+    P.forEach(function (hex, i) {
+      var b = document.createElement("button");
+      b.type = "button"; b.style.setProperty("--c", hex);
+      b.setAttribute("aria-pressed", String(i === c));
+      b.setAttribute("aria-label", "Fade into colour " + (i + 1) + ", " + hex);
+      b.addEventListener("click", function () { s.fade.color = i; renderFadeInto(); save(); queue(); });
+      box.append(b);
+    });
+  }
+  function syncFade() {
+    $("fadeOn").checked = s.fade.on;
+    $("fadeOpts").hidden = !s.fade.on;
+    var r = document.querySelector('input[name=fadeEdge][value="' + s.fade.edge + '"]'); if (r) r.checked = true;
+    renderFadeInto(); placeBars();
+  }
+  $("fadeOn").addEventListener("change", function () { s.fade.on = this.checked; syncFade(); save(); queue(); });
+  document.querySelectorAll("input[name=fadeEdge]").forEach(function (r) {
+    r.addEventListener("change", function () {
+      s.fade.edge = r.value;
+      $("barA").querySelector("span").textContent = r.value === "top" ? "Solid" : "Fade starts";
+      $("barB").querySelector("span").textContent = r.value === "top" ? "Fade starts" : "Solid";
+      save(); queue(); placeBars();
+    });
+  });
+
+  // Keep the bars glued to the preview canvas, at their saved heights.
+  function placeBars() {
+    var box = $("fadeBars");
+    box.hidden = !(img && s.fade.on);
+    if (box.hidden) return;
+    var sr = stage.getBoundingClientRect(), r = out.getBoundingClientRect();
+    box.style.left = r.left - sr.left + "px"; box.style.top = r.top - sr.top + "px";
+    box.style.width = r.width + "px"; box.style.height = r.height + "px";
+    [["barA", s.fade.a], ["barB", s.fade.b]].forEach(function (p) {
+      var bar = $(p[0]); bar.style.top = p[1] * 100 + "%";
+      bar.setAttribute("aria-valuenow", Math.round(p[1] * 100));
+      bar.setAttribute("aria-valuetext", Math.round(p[1] * 100) + "% down the image");
+      bar.setAttribute("aria-label", bar.querySelector("span").textContent + " position");
+    });
+    var band = $("fadeBand"); band.style.top = s.fade.a * 100 + "%"; band.style.height = (s.fade.b - s.fade.a) * 100 + "%";
+  }
+  function setBar(which, v) {
+    v = Math.min(1, Math.max(0, v));
+    if (which === "a") s.fade.a = Math.min(v, s.fade.b - 0.01);
+    else s.fade.b = Math.max(v, s.fade.a + 0.01);
+    placeBars(); queue();
+  }
+  ["a", "b"].forEach(function (which) {
+    var bar = $(which === "a" ? "barA" : "barB");
+    bar.addEventListener("pointerdown", function (e) { bar.setPointerCapture(e.pointerId); e.preventDefault(); });
+    bar.addEventListener("pointermove", function (e) {
+      if (!bar.hasPointerCapture(e.pointerId)) return;
+      var r = out.getBoundingClientRect();
+      setBar(which, (e.clientY - r.top) / r.height);
+    });
+    bar.addEventListener("pointerup", function () { save(); });
+    bar.addEventListener("keydown", function (e) {
+      var st = e.shiftKey ? 0.05 : 0.01, v = which === "a" ? s.fade.a : s.fade.b;
+      if (e.key === "ArrowUp") v -= st; else if (e.key === "ArrowDown") v += st; else return;
+      e.preventDefault(); setBar(which, v); save();
+    });
+  });
+
+  // Reset only the sliders; colours and pattern stay as they are.
+  $("reset").addEventListener("click", function () {
+    Object.keys(fmt).forEach(function (k) { s[k] = DEFAULTS[k]; });
+    syncControls(); save(); queue();
+  });
+
+  // ---- loading a photo: drop, paste, or file picker ----
+  function load(file) {
+    if (!file || !/^image\//.test(file.type)) { $("info").textContent = "That file isn't an image. Try a JPG, PNG or WebP."; return; }
+    fileName = (file.name || "image").replace(/\.[^.]+$/, "") || "image";
+    var url = URL.createObjectURL(file), im = new Image();
+    im.onload = function () {
+      img = im; sampled = null; source = null;
+      pre = DitherCore.readPredithered(im);
+      $("preNote").hidden = !pre;
+      $("patternGroup").classList.toggle("off", !!pre);
+      $("sliderGroup").classList.toggle("off", !!pre);
+      document.querySelectorAll("#patternGroup input, #sliderGroup input").forEach(function (i) { i.disabled = !!pre; });
+      renderColors();
+      stage.classList.add("has-image");
+      $("exportSvg").disabled = $("exportPng").disabled = false;
+      $("replace").hidden = false;
+      render();
+    };
+    im.onerror = function () { $("info").textContent = "Couldn't read that image. Try another file."; };
+    im.src = url;
+  }
+  $("choose").addEventListener("click", function () { $("file").click(); });
+  $("replace").addEventListener("click", function () { $("file").click(); });
+  $("file").addEventListener("change", function (e) { load(e.target.files[0]); e.target.value = ""; });
+  ["dragenter", "dragover"].forEach(function (t) {
+    document.addEventListener(t, function (e) { e.preventDefault(); stage.classList.add("dragging"); });
+  });
+  ["dragleave", "drop"].forEach(function (t) {
+    document.addEventListener(t, function (e) { e.preventDefault(); if (t === "drop" || !e.relatedTarget) stage.classList.remove("dragging"); });
+  });
+  document.addEventListener("drop", function (e) { load(e.dataTransfer.files[0]); });
+  document.addEventListener("paste", function (e) {
+    var item = [].find.call(e.clipboardData.items || [], function (i) { return i.type.indexOf("image/") === 0; });
+    if (item) load(item.getAsFile());
+  });
+
+  // ---- export ----
+  function download(blob, name) {
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  }
+  $("exportSvg").addEventListener("click", function () {
+    if (!bits) return;
+    download(new Blob([DitherCore.toSVG(bits, dims.w, dims.h, pal())], { type: "image/svg+xml" }), fileName + "-dither.svg");
+  });
+  $("exportPng").addEventListener("click", function () {
+    if (!bits) return;
+    var k = +$("pngScale").value, c = document.createElement("canvas");
+    c.width = dims.w * k; c.height = dims.h * k;
+    var cx = c.getContext("2d"); cx.imageSmoothingEnabled = false;
+    cx.drawImage(out, 0, 0, c.width, c.height);
+    c.toBlob(function (b) { download(b, fileName + "-dither-" + k + "x.png"); }, "image/png");
+  });
+
+  // Scroll over any slider to move it (up/right = more, Shift = bigger jumps).
+  // Delegated, so it also covers the colour picker's sliders. Trackpad deltas are
+  // accumulated so a gentle swipe doesn't fly to the end.
+  var wheelAcc = 0;
+  document.addEventListener("wheel", function (e) {
+    var r = e.target.closest && e.target.closest('input[type="range"]');
+    if (!r) return;
+    e.preventDefault();
+    // Shift+wheel arrives as horizontal scroll in most browsers; treat it as vertical.
+    var d = e.shiftKey ? -(e.deltaY || e.deltaX)
+          : Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : -e.deltaY;
+    if (e.deltaMode === 1) d *= 33;                      // line-based wheels
+    wheelAcc += d;
+    var notches = Math.trunc(wheelAcc / 50);
+    if (!notches) return;
+    wheelAcc -= notches * 50;
+    var step = +r.step || 1, min = +r.min, max = +r.max;
+    var perNotch = Math.max(1, Math.round((max - min) / step / 120)) * (e.shiftKey ? 10 : 1);
+    var v = Math.min(max, Math.max(min, +r.value + notches * perNotch * step));
+    v = Math.round((v - min) / step) * step + min;
+    if (v !== +r.value) { r.value = +v.toFixed(4); r.dispatchEvent(new Event("input", { bubbles: true })); }
+  }, { passive: false });
+
+  // ---- In-page eyedropper: pick from the ORIGINAL photo (works in every browser) ----
+  function getSource() {
+    if (source) return source;
+    var k = Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight));   // cap memory
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    var cx = c.getContext("2d", { willReadFrequently: true }); cx.drawImage(img, 0, 0, c.width, c.height);
+    source = { canvas: c, w: c.width, h: c.height, data: cx.getImageData(0, 0, c.width, c.height).data };
+    return source;
+  }
+  function avgHex(sx, sy) {               // average of a 3x3 patch, clamped to the image
+    var src = getSource(), r = 0, g = 0, b = 0, n = 0;
+    for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+      var x = Math.min(src.w - 1, Math.max(0, sx + dx)), y = Math.min(src.h - 1, Math.max(0, sy + dy)), o = (y * src.w + x) * 4;
+      r += src.data[o]; g += src.data[o + 1]; b += src.data[o + 2]; n++;
+    }
+    return "#" + [r, g, b].map(function (v) { return Math.round(v / n).toString(16).padStart(2, "0"); }).join("");
+  }
+  ColorPicker.setEyedropper({
+    available: function () { return !!img; },
+    start: function (done) {
+      var view = $("srcView"), loupe = $("loupe"), lc = loupe.querySelector("canvas"), lx = lc.getContext("2d");
+      var src = getSource(), r = view.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+      view.width = Math.round(r.width * dpr) || src.w; view.height = Math.round(r.height * dpr) || src.h;
+      var vx = view.getContext("2d"); vx.imageSmoothingQuality = "high"; vx.drawImage(src.canvas, 0, 0, view.width, view.height);
+      stage.classList.add("sampling"); $("sampleHint").hidden = false;
+      var pressed = false;
+
+      function at(e) {
+        var b = view.getBoundingClientRect();
+        return { sx: Math.round((e.clientX - b.left) / b.width * (src.w - 1)), sy: Math.round((e.clientY - b.top) / b.height * (src.h - 1)),
+                 px: e.clientX - stage.getBoundingClientRect().left, py: e.clientY - stage.getBoundingClientRect().top };
+      }
+      function show(e) {
+        var p = at(e), hex = avgHex(p.sx, p.sy), st = stage.getBoundingClientRect();
+        lx.imageSmoothingEnabled = false; lx.clearRect(0, 0, 132, 132);
+        lx.drawImage(src.canvas, p.sx - 5, p.sy - 5, 11, 11, 0, 0, 132, 132);   // 12x zoom
+        lx.strokeStyle = "#fff"; lx.lineWidth = 2; lx.strokeRect(54, 54, 24, 24);
+        lx.strokeStyle = "rgba(0,0,0,.6)"; lx.lineWidth = 1; lx.strokeRect(52.5, 52.5, 27, 27);
+        loupe.querySelector("span").textContent = hex;
+        loupe.hidden = false;
+        var x = p.px + 22, y = p.py - 170;
+        if (x + 140 > st.width) x = p.px - 154;
+        if (y < 8) y = p.py + 22;
+        loupe.style.left = x + "px"; loupe.style.top = y + "px";
+      }
+      function finish(hex) {
+        stage.classList.remove("sampling"); $("sampleHint").hidden = true; loupe.hidden = true;
+        view.removeEventListener("pointermove", onMove); view.removeEventListener("pointerdown", onDown);
+        view.removeEventListener("pointerup", onUp); view.removeEventListener("pointerleave", onLeave);
+        document.removeEventListener("keydown", onKey, true); document.removeEventListener("pointerdown", onOutside, true);
+        done(hex);
+      }
+      function onMove(e) { show(e); }
+      function onDown(e) { e.stopPropagation(); pressed = true; show(e); }
+      function onUp(e) { if (!pressed) return; pressed = false; var p = at(e); finish(avgHex(p.sx, p.sy)); }
+      function onLeave() { if (!pressed) loupe.hidden = true; }
+      function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); finish(null); } }
+      function onOutside(e) { if (e.target !== view) finish(null); }
+      view.addEventListener("pointermove", onMove); view.addEventListener("pointerdown", onDown);
+      view.addEventListener("pointerup", onUp); view.addEventListener("pointerleave", onLeave);
+      document.addEventListener("keydown", onKey, true); document.addEventListener("pointerdown", onOutside, true);
+    }
+  });
+
+  syncControls();
+})();
+</script>
+</body>
+</html>
