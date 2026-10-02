@@ -12,6 +12,7 @@ Everything runs locally in your browser. Photos are never uploaded anywhere.
 - **Dither patterns:** Floyd-Steinberg, Atkinson, Bayer 2x2 / 4x4 / 8x8 (ordered), or plain threshold.
 - **Tone controls:** pixel density (dots across), brightness, contrast, gamma and sharpen, with a live preview. Scroll over any slider to nudge it (Shift for bigger steps).
 - **2 to 4 colours,** ordered darkest to lightest. Each colour takes an equal band of the image's tones, with dithered blends in between.
+- **Colour themes:** one-click palettes that go together (Lake, Popcorn, Game Boy, Amber Terminal, Phosphor, Blueprint, Risograph, Sunset, Sepia, Ocean, Paper & Ink). They work in both modes; in ASCII mode the darkest colour becomes the background.
 - **Colour picker:** saturation/brightness field with hue slider, hex input, RGB sliders, presets, and an eyedropper that picks straight from your original photo (works in every browser) with a magnifier loupe.
 - **Fade:** dissolve the top or bottom edge into one of your colours with an ordered dither, using two draggable bars on the preview. Handy for letting pixel art blend into a page background.
 - **Re-open your own exports:** drop in an image that's already dithered (4 colours or fewer) and its pixels are used exactly as they are, so you can recolour it or add a fade without re-dithering.
@@ -19,7 +20,7 @@ Everything runs locally in your browser. Photos are never uploaded anywhere.
 - **ASCII mode:** turn the photo into text art.
   - Character sets: Classic (` .:-=+*#%@`), Detailed (a 70-character ramp), Blocks (` ░▒▓█`), Braille (each character is a 2x4 grid of dots, for about 8x the detail), or your own custom ramp.
   - The dither patterns choose which character goes where, so shading stays smooth instead of banding.
-  - Text and background colours, plus an option to tint every character with the photo's own colour.
+  - A background colour plus 1 to 3 text colours: each text colour takes a band of tones (shadows, midtones, highlights), dithered between neighbours so it blends instead of banding. Or tint every character with the photo's own colour instead.
   - Export: copy to clipboard, `.txt`, SVG (real text, each line pinned to an exact width so the grid lines up in any monospace font) or PNG.
 - Settings are remembered between visits.
 

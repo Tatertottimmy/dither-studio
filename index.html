@@ -145,7 +145,25 @@
     background: var(--bg); font-family: var(--mono); font-size: .9rem; white-space: pre;
   }
   .tint-row { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; font-size: .88rem; color: var(--muted); }
-  #out.text { image-rendering: auto; }   /* out of the way while picking from the photo */
+  #out.text { image-rendering: auto; }
+
+  /* ---------- Themes: palette chips ---------- */
+  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 8px; }
+  .theme {
+    height: 30px; border: 0; cursor: pointer; padding: 0;
+    background: var(--stripes);
+    border-radius: var(--blob-a);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.14);
+    transition: transform .15s, border-radius .5s;
+  }
+  .theme:nth-child(even) { border-radius: var(--blob-b); }
+  .theme:hover { transform: scale(1.08); }
+  .theme[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+  .theme-name { margin-top: 8px; min-height: 1.2em; font-size: .8rem; color: var(--muted); }
+  .ascii-colors { display: flex; align-items: flex-start; gap: 10px; }
+  .ascii-colors .bg { flex: none; width: 64px; }
+  .ascii-colors .divider { width: 1px; align-self: stretch; margin: 6px 2px 22px; background: var(--line); }
+  .ascii-colors .inks { flex: 1; display: grid; grid-template-columns: repeat(var(--n, 1), minmax(0, 64px)); gap: 10px; }   /* out of the way while picking from the photo */
   .stage.has-image #out { display: block; }
   .stage.has-image .drop { display: none; }
   .info {
@@ -336,6 +354,11 @@
       <label><input type="radio" name="mode" value="dither"><span>Dither</span></label>
       <label><input type="radio" name="mode" value="ascii"><span>ASCII</span></label>
     </div>
+    <div class="group">
+      <h3 id="themesLabel">Themes</h3>
+      <div class="themes" id="themes" role="group" aria-labelledby="themesLabel"></div>
+      <p class="theme-name" id="themeName" aria-live="polite"></p>
+    </div>
     <p class="note pre-note" id="preNote" hidden>This image is already dithered, so its own pixels are used as they are. Pattern and tone sliders are off; you can still recolour it and add a fade.</p>
     <div class="group" id="ditherColors">
       <div class="group-head">
@@ -350,14 +373,18 @@
 
     <div class="group" id="asciiColors" hidden>
       <div class="group-head">
-        <h3 id="asciiColorsLabel">Colours</h3>
-        <div class="mini"><button class="icon-btn" id="asciiSwap" type="button" aria-label="Swap text and background colours" title="Swap">&#8646;</button></div>
+        <h3 id="asciiColorsLabel">Colours <span>background, then text</span></h3>
+        <div class="mini">
+          <button class="icon-btn" id="asciiFlip" type="button" aria-label="Flip background and text colours" title="Flip light and dark">&#8646;</button>
+          <button class="icon-btn" id="asciiAdd" type="button" aria-label="Add a text colour" title="Add a text colour (up to 3)">+</button>
+        </div>
       </div>
-      <div class="colors" style="--n:2" role="list" aria-labelledby="asciiColorsLabel">
-        <div class="swatch" role="listitem"><button class="blob" id="asciiInk" type="button" aria-haspopup="dialog" aria-expanded="false"></button><span id="asciiInkHex"></span></div>
-        <div class="swatch" role="listitem"><button class="blob" id="asciiPaper" type="button" aria-haspopup="dialog" aria-expanded="false"></button><span id="asciiPaperHex"></span></div>
+      <div class="ascii-colors">
+        <div class="swatch bg"><button class="blob" id="asciiPaper" type="button" aria-haspopup="dialog" aria-expanded="false"></button><span id="asciiPaperHex"></span></div>
+        <div class="divider" aria-hidden="true"></div>
+        <div class="inks" id="asciiInks" role="list" aria-label="Text colours"></div>
       </div>
-      <label class="tint-row"><span>Tint text with the photo's colours</span>
+      <label class="tint-row"><span>Tint text with the photo's colours instead</span>
         <span class="switch"><input type="checkbox" id="asciiTint"><span class="track" aria-hidden="true"></span></span></label>
     </div>
 
@@ -423,7 +450,7 @@
 </main>
 
 <script src="dither-core.js?v=202610021344"></script>
-<script src="ascii.js?v=202610021347"></script>
+<script src="ascii.js?v=202610021415"></script>
 <script src="picker.js?v=202610012008"></script>
 <script>
 (function () {
@@ -432,15 +459,22 @@
   var DEFAULTS = { colors: ["#2c2d30", "#d3d4d1"], algo: "floyd", cols: 480, brightness: 0, contrast: 10, gamma: 1, sharpen: 0.6,
                    fade: { on: false, edge: "bottom", a: 0.62, b: 0.96, color: 0 },
                    mode: "dither",
-                   ascii: { cols: 120, set: "classic", custom: " .oO@", ink: "#e9ece8", paper: "#111214", tint: false } };
+                   ascii: { cols: 120, set: "classic", custom: " .oO@", inks: ["#e9ece8"], paper: "#111214", tint: false } };
   var KEY = "dither-settings";
   var s = Object.assign({}, DEFAULTS);
-  try { Object.assign(s, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
-  if (s.ink && s.paper && !Array.isArray(s.colors)) s.colors = [s.ink, s.paper];   // older 2-colour settings
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) {}
+  Object.assign(s, saved);
+  // Older saved settings (checked on the raw saved object, before defaults fill the gaps)
+  if (saved.ink && saved.paper && !Array.isArray(saved.colors)) s.colors = [saved.ink, saved.paper];
   delete s.ink; delete s.paper;
   if (!Array.isArray(s.colors) || s.colors.length < 2) s.colors = DEFAULTS.colors.slice();
   s.fade = Object.assign({}, DEFAULTS.fade, s.fade || {});
-  s.ascii = Object.assign({}, DEFAULTS.ascii, s.ascii || {});
+  var savedAscii = saved.ascii || {};
+  s.ascii = Object.assign({}, DEFAULTS.ascii, savedAscii);
+  if (savedAscii.ink && !Array.isArray(savedAscii.inks)) s.ascii.inks = [savedAscii.ink];   // older single-ink settings
+  delete s.ascii.ink;
+  if (!Array.isArray(s.ascii.inks) || !s.ascii.inks.length) s.ascii.inks = DEFAULTS.ascii.inks.slice();
   if (s.mode !== "ascii") s.mode = "dither";
   var asciiOut = null, asciiSampled = null, asciiKey = "", aspect = 0.6;   // aspect = char width / line height
 
@@ -475,7 +509,7 @@
     fit();
     $("info").textContent = dims.w + " \u00d7 " + dims.h + " dots" + (pre ? ", using the image's own pixels" : "");
   }
-  function queue() { if (!queued) { queued = true; requestAnimationFrame(render); } }
+  function queue() { markTheme(); if (!queued) { queued = true; requestAnimationFrame(render); } }
 
   // Fit the preview to the stage by the photo's own aspect ratio, so its on-screen size
   // stays locked while the pixel density changes (only the dots get finer or coarser).
@@ -513,6 +547,7 @@
     syncFade();
     syncAscii();
     syncMode();
+    markTheme();
   }
 
   // ---- colours: 2-4 blobs, darkest tone first ----
@@ -680,7 +715,7 @@
   $("exportSvg").addEventListener("click", function () {
     if (s.mode === "ascii") {
       if (!asciiOut) return;
-      download(new Blob([Ascii.toSVG(asciiOut.lines, { aspect: aspect, ink: s.ascii.ink, paper: s.ascii.paper, colors: asciiOut.colors })],
+      download(new Blob([Ascii.toSVG(asciiOut.lines, { aspect: aspect, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors, exact: !s.ascii.tint })],
         { type: "image/svg+xml" }), fileName + "-ascii.svg");
       return;
     }
@@ -691,7 +726,7 @@
     if (s.mode === "ascii") {
       if (!asciiOut) return;
       var c2 = document.createElement("canvas");
-      Ascii.paint(c2, asciiOut.lines, { fs: 12 * +$("pngScale").value, ink: s.ascii.ink, paper: s.ascii.paper, colors: asciiOut.colors });
+      Ascii.paint(c2, asciiOut.lines, { fs: 12 * +$("pngScale").value, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors });
       c2.toBlob(function (b) { download(b, fileName + "-ascii-" + $("pngScale").value + "x.png"); }, "image/png");
       return;
     }
@@ -737,16 +772,19 @@
     var rows = Math.max(1, Math.round(a.cols * img.naturalHeight / img.naturalWidth * aspect));
     var key = [a.cols, rows, braille].join("x");
     if (key !== asciiKey) { asciiSampled = DitherCore.sample(img, braille ? a.cols * 2 : a.cols, braille ? rows * 4 : rows); asciiKey = key; }
-    var L = DitherCore.adjust(asciiSampled, s), dense = Ascii.brightIsDense(a.ink, a.paper);
+    var L = DitherCore.adjust(asciiSampled, s), dense = Ascii.brightIsDense(a.inks, a.paper);
     var lines = braille ? Ascii.toBraille(L, asciiSampled.w, asciiSampled.h, s.algo, dense)
                         : Ascii.toLines(L, asciiSampled.w, asciiSampled.h, ramp(), s.algo, dense);
     var cols = lines[0] ? lines[0].length : 0;
-    var colors = a.tint ? Ascii.cellColors(asciiSampled, cols, lines.length, dense) : null;
+    var colors = null;
+    if (a.tint) colors = Ascii.cellColors(asciiSampled, cols, lines.length, dense);
+    else if (a.inks.length > 1)
+      colors = Ascii.bandColors(Ascii.cellLum(L, asciiSampled.w, asciiSampled.h, cols, lines.length), cols, lines.length, a.inks, s.algo);
     asciiOut = { lines: lines, colors: colors };
     // draw at roughly the on-screen resolution so the text stays crisp
     var r = stage.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     var fs = Math.max(4, Math.min(48, Math.round((r.width - 48) * dpr / (cols * aspect))));
-    Ascii.paint(out, lines, { fs: fs, ink: a.ink, paper: a.paper, colors: colors });
+    Ascii.paint(out, lines, { fs: fs, ink: a.inks[0], paper: a.paper, colors: colors });
     fit();
     $("info").textContent = cols + " \u00d7 " + lines.length + " characters";
   }
@@ -757,11 +795,30 @@
     var r = document.querySelector('input[name=charset][value="' + a.set + '"]'); if (r) r.checked = true;
     $("customRamp").hidden = a.set !== "custom"; $("customRamp").value = a.custom;
     $("asciiTint").checked = a.tint;
-    [["asciiInk", "ink", "Text"], ["asciiPaper", "paper", "Background"]].forEach(function (c) {
-      var b = $(c[0]); b.style.setProperty("--c", a[c[1]]);
-      b.setAttribute("aria-label", c[2] + " colour, " + a[c[1]]);
-      $(c[0] + "Hex").textContent = a[c[1]];
+    var pb = $("asciiPaper"); pb.style.setProperty("--c", a.paper);
+    pb.setAttribute("aria-label", "Background colour, " + a.paper); $("asciiPaperHex").textContent = a.paper;
+    var box = $("asciiInks"), n = a.inks.length;
+    box.style.setProperty("--n", n); box.innerHTML = "";
+    a.inks.forEach(function (hex, i) {
+      var sw = document.createElement("div"); sw.className = "swatch"; sw.setAttribute("role", "listitem");
+      var b = document.createElement("button"); b.className = "blob"; b.type = "button"; b.style.setProperty("--c", hex);
+      b.setAttribute("aria-haspopup", "dialog"); b.setAttribute("aria-expanded", "false");
+      var role = n === 1 ? "text" : i === 0 ? "shadows" : i === n - 1 ? "highlights" : "midtones";
+      b.setAttribute("aria-label", "Text colour " + (i + 1) + " of " + n + ", " + role + ", " + hex);
+      b.addEventListener("click", function () {
+        ColorPicker.open(b, a.inks[i], function (h) { a.inks[i] = h; syncAscii(); save(); queue(); }, "Text colour " + (i + 1) + " (" + role + ")");
+      });
+      var t = document.createElement("span"); t.textContent = hex;
+      sw.append(b, t);
+      if (n > 1) {
+        var x = document.createElement("button"); x.className = "remove"; x.type = "button"; x.innerHTML = "&times;";
+        x.setAttribute("aria-label", "Remove text colour " + (i + 1) + " (" + hex + ")");
+        x.addEventListener("click", function () { a.inks.splice(i, 1); syncAscii(); save(); queue(); });
+        sw.append(x);
+      }
+      box.append(sw);
     });
+    $("asciiAdd").disabled = n >= 3;
   }
   function syncMode() {
     var ascii = s.mode === "ascii";
@@ -776,6 +833,7 @@
     $("patternGroup").classList.toggle("off", lock); $("sliderGroup").classList.toggle("off", lock);
     document.querySelectorAll("#patternGroup input, #sliderGroup input").forEach(function (i) { i.disabled = lock; });
     document.querySelector("h1").textContent = ascii ? "ASCII" : "Dither";
+    if (typeof markTheme === "function" && document.querySelector(".theme")) markTheme();
     placeBars();
   }
   document.querySelectorAll("input[name=mode]").forEach(function (r) {
@@ -787,12 +845,60 @@
   $("customRamp").addEventListener("input", function () { s.ascii.custom = this.value; save(); queue(); });
   $("acols").addEventListener("input", function () { s.ascii.cols = +this.value; $("acolsOut").textContent = s.ascii.cols + " across"; save(); queue(); });
   $("asciiTint").addEventListener("change", function () { s.ascii.tint = this.checked; save(); queue(); });
-  $("asciiSwap").addEventListener("click", function () { var t = s.ascii.ink; s.ascii.ink = s.ascii.paper; s.ascii.paper = t; syncAscii(); save(); queue(); });
-  [["asciiInk", "ink", "Text colour"], ["asciiPaper", "paper", "Background colour"]].forEach(function (c) {
-    $(c[0]).addEventListener("click", function () {
-      ColorPicker.open($(c[0]), s.ascii[c[1]], function (h) { s.ascii[c[1]] = h; syncAscii(); save(); queue(); }, c[2]);
-    });
+  // Flip light and dark: the lightest colour becomes the background, the rest become text.
+  $("asciiFlip").addEventListener("click", function () {
+    var all = [s.ascii.paper].concat(s.ascii.inks), sorted = Ascii.sortByLum(all);
+    var bgIsDark = sorted.indexOf(s.ascii.paper) === 0;
+    s.ascii.paper = bgIsDark ? sorted[sorted.length - 1] : sorted[0];
+    s.ascii.inks = Ascii.sortByLum(all.filter(function (c, i) { return c !== s.ascii.paper || i !== all.indexOf(s.ascii.paper); }));
+    syncAscii(); save(); queue();
   });
+  // New text colour: a blend of the background and the first text colour, then keep them in tone order.
+  $("asciiAdd").addEventListener("click", function () {
+    var a = s.ascii; if (a.inks.length >= 3) return;
+    a.inks = Ascii.sortByLum(a.inks.concat(mix(a.paper, a.inks[0])));
+    a.tint = false; syncAscii(); save(); queue();
+  });
+  $("asciiPaper").addEventListener("click", function () {
+    ColorPicker.open($("asciiPaper"), s.ascii.paper, function (h) { s.ascii.paper = h; syncAscii(); save(); queue(); }, "Background colour");
+  });
+
+  // ---- Themes (both modes) ----
+  function stripes(cols) {
+    var w = 100 / cols.length;
+    return "linear-gradient(90deg," + cols.map(function (c, i) { return c + " " + (i * w) + "% " + ((i + 1) * w) + "%"; }).join(",") + ")";
+  }
+  function currentColors() {
+    return s.mode === "ascii" ? Ascii.sortByLum([s.ascii.paper].concat(s.ascii.inks)) : Ascii.sortByLum(pal());
+  }
+  function markTheme() {
+    var cur = currentColors().join(), hit = "";
+    document.querySelectorAll(".theme").forEach(function (b) {
+      var on = b.dataset.colors === cur; b.setAttribute("aria-pressed", String(on)); if (on) hit = b.dataset.name;
+    });
+    $("themeName").textContent = hit;
+  }
+  function applyTheme(t) {
+    var cols = Ascii.sortByLum(t.colors);
+    if (s.mode === "ascii") {
+      s.ascii.paper = cols[0]; s.ascii.inks = cols.slice(1); s.ascii.tint = false;
+    } else if (pre) {                      // fixed pixels: recolour each slot from the theme, dark to light
+      pre.palette = pre.palette.map(function (_, i, arr) { return cols[Math.round(i * (cols.length - 1) / Math.max(1, arr.length - 1))]; });
+    } else {
+      s.colors = cols.slice(); s.fade.color = Math.min(s.fade.color, cols.length - 1);
+    }
+    syncControls(); save(); queue();
+  }
+  Ascii.THEMES.forEach(function (t) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "theme";
+    b.dataset.name = t.name; b.dataset.colors = Ascii.sortByLum(t.colors).join();
+    b.style.setProperty("--stripes", stripes(t.colors));
+    b.title = t.name; b.setAttribute("aria-label", t.name + " theme: " + t.colors.join(", "));
+    b.addEventListener("click", function () { applyTheme(t); });
+    $("themes").append(b);
+  });
+
   function asciiText() { return asciiOut ? asciiOut.lines.join("\n") + "\n" : ""; }
   $("copyText").addEventListener("click", function () {
     var t = asciiText(), btn = this;

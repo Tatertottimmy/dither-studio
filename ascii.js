@@ -10,12 +10,34 @@
     blocks: " ░▒▓█"
   };
 
+  // Colour themes: each is ordered darkest -> lightest. Dither mode uses them as the palette;
+  // ASCII mode uses the darkest as the background and the rest as text colours.
+  var THEMES = [
+    { name: "Lake",           colors: ["#003e25", "#858e8e", "#f58e00"] },
+    { name: "Popcorn",        colors: ["#000000", "#975a1d", "#dbac00", "#e5c300"] },
+    { name: "Game Boy",       colors: ["#0f380f", "#306230", "#8bac0f", "#9bbc0f"] },
+    { name: "Amber Terminal", colors: ["#140b00", "#7a4a00", "#ffb000"] },
+    { name: "Phosphor",       colors: ["#03140a", "#1f7a3c", "#7dffa0"] },
+    { name: "Blueprint",      colors: ["#0b2a5b", "#3f6fb5", "#e6eefc"] },
+    { name: "Risograph",      colors: ["#0078bf", "#ff48b0", "#f7f1e3"] },
+    { name: "Sunset",         colors: ["#2b1a3d", "#b8406a", "#f7a35c", "#fbe7c6"] },
+    { name: "Sepia",          colors: ["#2a1d14", "#7a5a3c", "#c9a77c", "#f3e6cf"] },
+    { name: "Ocean",          colors: ["#08233a", "#1f6f8b", "#99d5c9", "#f0f7f4"] },
+    { name: "Paper & Ink",    colors: ["#1b1b1f", "#f2efe6"] }
+  ];
+
   function hexLum(hex) {
     var v = parseInt(hex.slice(1), 16);
     return 0.2126 * ((v >> 16) & 255) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255);
   }
   // Light text on a dark background means bright parts of the photo get the dense characters.
-  function brightIsDense(ink, paper) { return hexLum(ink) > hexLum(paper); }
+  // `inks` may be one colour or a list; their average brightness is compared to the background.
+  function brightIsDense(inks, paper) {
+    inks = [].concat(inks);
+    var avg = inks.reduce(function (t, h) { return t + hexLum(h); }, 0) / inks.length;
+    return avg > hexLum(paper);
+  }
+  function sortByLum(list) { return list.slice().sort(function (a, b) { return hexLum(a) - hexLum(b); }); }
 
   // L: luminance grid (w x h), one value per character cell.
   function toLines(L, w, h, ramp, algo, brightDense) {
@@ -49,6 +71,29 @@
       lines.push(row);
     }
     return lines;
+  }
+
+  // Average luminance per character cell (Braille samples 2x4 dots per character).
+  function cellLum(L, w, h, cols, rows) {
+    if (w === cols && h === rows) return L;
+    var bx = w / cols, by = h / rows, out = new Float32Array(cols * rows);
+    for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+      var t = 0, n = 0;
+      for (var yy = Math.floor(y * by); yy < Math.floor((y + 1) * by); yy++)
+        for (var xx = Math.floor(x * bx); xx < Math.floor((x + 1) * bx); xx++) { t += L[yy * w + xx]; n++; }
+      out[y * cols + x] = n ? t / n : 0;
+    }
+    return out;
+  }
+
+  // Multi-colour text: each text colour owns a band of tones (inks[0] = shadows ... last =
+  // highlights), dithered between neighbours so characters blend instead of banding.
+  function bandColors(Lcell, cols, rows, inks, algo) {
+    var band = DitherCore.dither(Lcell, cols, rows, algo, inks.length), rgb = inks.map(function (h) {
+      var v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+    }), out = new Uint8ClampedArray(cols * rows * 3);
+    for (var i = 0; i < band.length; i++) { var c = rgb[band[i]]; out[i * 3] = c[0]; out[i * 3 + 1] = c[1]; out[i * 3 + 2] = c[2]; }
+    return out;
   }
 
   // Per-character colours for "tint with photo colours" (averages blocks for Braille).
@@ -91,11 +136,16 @@
         ctx.fillStyle = o.ink; ctx.fillText(lines[y], 0, y * fs);
         continue;
       }
-      for (var x = 0; x < lines[y].length; x++) {             // tinted: one fill per character
-        var ch = lines[y][x]; if (ch === " " || ch === "⠀") continue;
-        var p = (y * cols + x) * 3;
-        ctx.fillStyle = "rgb(" + o.colors[p] + "," + o.colors[p + 1] + "," + o.colors[p + 2] + ")";
-        ctx.fillText(ch, x * cw, y * fs);
+      var x = 0, line = lines[y];
+      while (x < line.length) {                              // coloured: group runs of the same colour
+        var p = (y * cols + x) * 3, r = o.colors[p], g = o.colors[p + 1], b = o.colors[p + 2], s0 = x;
+        while (x < line.length) {
+          var q = (y * cols + x) * 3;
+          if (o.colors[q] !== r || o.colors[q + 1] !== g || o.colors[q + 2] !== b) break;
+          x++;
+        }
+        ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+        for (var k = s0; k < x; k++) { var ch = line[k]; if (ch !== " " && ch !== "\u2800") ctx.fillText(ch, k * cw, y * fs); }
       }
     }
     return { cw: cw };
@@ -103,11 +153,12 @@
 
   function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   function hex2(v) { return (v >> 4 << 4).toString(16).padStart(2, "0"); }   // 4-bit per channel keeps tinted SVGs small
+  function hex8(v) { return (v | 0).toString(16).padStart(2, "0"); }        // exact, for theme colours
 
   // Vector export: real <text>, each run forced to its exact width with textLength so the grid
   // lines up whatever monospace font the viewer has.
   function toSVG(lines, o) {
-    var fs = 10, cw = fs * o.aspect, cols = lines[0] ? lines[0].length : 0;
+    var fs = 10, cw = fs * o.aspect, cols = lines[0] ? lines[0].length : 0, hx = o.exact ? hex8 : hex2;
     var W = +(cols * cw).toFixed(2), H = lines.length * fs, body = "";
     for (var y = 0; y < lines.length; y++) {
       var line = lines[y], baseY = (y * fs + fs * 0.8).toFixed(2);
@@ -117,10 +168,10 @@
       }
       var x = 0;
       while (x < cols) {                                  // runs of characters sharing a (rounded) colour
-        var p = (y * cols + x) * 3, col = "#" + hex2(o.colors[p]) + hex2(o.colors[p + 1]) + hex2(o.colors[p + 2]), s0 = x;
+        var p = (y * cols + x) * 3, col = "#" + hx(o.colors[p]) + hx(o.colors[p + 1]) + hx(o.colors[p + 2]), s0 = x;
         while (x < cols) {
           var q = (y * cols + x) * 3;
-          if ("#" + hex2(o.colors[q]) + hex2(o.colors[q + 1]) + hex2(o.colors[q + 2]) !== col) break;
+          if ("#" + hx(o.colors[q]) + hx(o.colors[q + 1]) + hx(o.colors[q + 2]) !== col) break;
           x++;
         }
         var run = line.slice(s0, x);
@@ -134,6 +185,6 @@
       body + "</g></svg>";
   }
 
-  window.Ascii = { SETS: SETS, brightIsDense: brightIsDense, toLines: toLines, toBraille: toBraille,
+  window.Ascii = { SETS: SETS, THEMES: THEMES, sortByLum: sortByLum, cellLum: cellLum, bandColors: bandColors, brightIsDense: brightIsDense, toLines: toLines, toBraille: toBraille,
                    cellColors: cellColors, cellAspect: cellAspect, paint: paint, toSVG: toSVG, FONT: FONT };
 })();
