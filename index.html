@@ -499,7 +499,7 @@
         <div class="bands-foot"><span>shadows</span><button class="link" id="bandsReset" type="button">Even out</button><span>highlights</span></div>
       </div>
       <div id="hueBox" hidden>
-        <div class="hue-presets" id="huePresets" role="group" aria-label="Hue colour presets"></div>
+        <div class="hue-presets" id="huePresets" role="group" aria-label="Colour presets"></div>
         <div class="hue-foot"><span id="hueName"></span><button class="link" id="hueAlign" type="button">Line up with my colours</button></div>
       </div>
       <div class="slider" id="hueRow" hidden style="margin-top:14px"><label for="hueShift">Hue offset</label><output id="hueShiftOut" for="hueShift"></output><input id="hueShift" type="range" min="0" max="359" step="1"></div>
@@ -1233,7 +1233,8 @@
     var ascii = s.mode === "ascii", P = bandColours(), n = P.length, key = ascii ? "ascii" : "dither";
     $("mapGroup").hidden = !!pre && !ascii;                 // fixed pixels: nothing to map
     var r = document.querySelector('input[name=mapMode][value="' + s.map.mode + '"]'); if (r) r.checked = true;
-    $("hueRow").hidden = $("hueBox").hidden = s.map.mode !== "hue";
+    $("hueRow").hidden = s.map.mode !== "hue";
+    $("hueBox").hidden = s.map.mode === "tone";
     syncHuePresets();
     $("hueShift").value = s.map.hue; $("hueShiftOut").textContent = s.map.hue + "\u00b0";
     var usable = !ascii || (n > 1 && !s.ascii.tint);
@@ -1303,6 +1304,18 @@
     { name: "Synthwave", colors: ["#2d1b69", "#ff2a6d", "#05d9e8"] },
     { name: "Pop", colors: ["#1d3557", "#e63946", "#f4d35e", "#2a9d8f"] }
   ];
+  // Nearest colour: each pixel takes the closest of these, so a good set covers the colours real
+  // photos are made of (or is a classic limited palette). Order doesn't matter; kept dark to light.
+  var NEAREST_PRESETS = [
+    { name: "CGA cyan & magenta", colors: ["#000000", "#55ffff", "#ff55ff", "#ffffff"] },
+    { name: "CGA red, green & yellow", colors: ["#000000", "#55ff55", "#ff5555", "#ffff55"] },
+    { name: "Game Boy", colors: ["#0f380f", "#306230", "#8bac0f", "#9bbc0f"] },
+    { name: "Skin & sky", colors: ["#1d1a1f", "#c27c5a", "#5b8fc9", "#f4ede4"] },
+    { name: "Forest", colors: ["#14231b", "#4f7a3a", "#c9a227", "#e8efe0"] },
+    { name: "Seaside", colors: ["#0b1d2e", "#1f6f8b", "#e0c08f", "#f5f7f2"] },
+    { name: "Primary pop", colors: ["#111111", "#e63946", "#1d70b8", "#f6f1e7"] },
+    { name: "Neon night", colors: ["#0d0221", "#ff2a6d", "#05d9e8", "#f9f871"] }
+  ];
   function hsl(hex) {
     var v = parseInt(hex.slice(1), 16), r = (v >> 16 & 255) / 255, g = (v >> 8 & 255) / 255, b = (v & 255) / 255;
     var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, h = 0;
@@ -1337,24 +1350,42 @@
     s.map.hue = hue; syncControls(); save(); queue();
   }
   function hueColors() { return s.mode === "ascii" ? s.ascii.inks : s.colors; }
-  HUE_PRESETS.forEach(function (p) {
-    p.fit = lineUp(p.colors, true);
+  function addChip(p, kind, cols, apply) {
     var b = document.createElement("button");
     b.type = "button"; b.className = "hue-chip"; b.title = p.name;
-    b.style.setProperty("--stripes", stripes(p.fit.colors));
-    b.setAttribute("aria-label", p.name + " hue preset: " + p.fit.colors.join(", "));
-    b.addEventListener("click", function () { setHueColors(p.fit.colors, p.fit.hue); });
+    b.style.setProperty("--stripes", stripes(cols));
+    b.setAttribute("aria-label", p.name + " " + kind + " preset: " + cols.join(", "));
+    b.addEventListener("click", apply);
     p.btn = b; $("huePresets").append(b);
+  }
+  HUE_PRESETS.forEach(function (p) {
+    p.fit = lineUp(p.colors, true);
+    addChip(p, "hue", p.fit.colors, function () { setHueColors(p.fit.colors, p.fit.hue); });
+  });
+  NEAREST_PRESETS.forEach(function (p) {
+    p.sorted = Ascii.sortByLum(p.colors);
+    addChip(p, "nearest colour", p.sorted, function () {
+      if (s.mode === "ascii") { s.ascii.paper = p.sorted[0]; s.ascii.inks = p.sorted.slice(1); s.ascii.tint = false; }   // darkest becomes the background
+      else { s.colors = p.sorted.slice(); s.fade.color = Math.min(s.fade.color, p.sorted.length - 1); }
+      syncControls(); save(); queue();
+    });
   });
   function syncHuePresets() {
     if (!HUE_PRESETS || !$("hueName")) return;          // not built yet
-    var cur = hueColors().join(), hit = "", ascii = s.mode === "ascii";
+    var cur = hueColors().join(), hit = "", ascii = s.mode === "ascii", hue = s.map.mode === "hue";
+    var all = (ascii ? [s.ascii.paper].concat(s.ascii.inks) : s.colors).join();
     HUE_PRESETS.forEach(function (p) {
-      p.btn.hidden = ascii && p.colors.length > 3;       // ASCII has up to 3 text colours
-      var on = p.fit.colors.join() === cur && p.fit.hue === s.map.hue;
+      p.btn.hidden = !hue || (ascii && p.colors.length > 3);   // ASCII has up to 3 text colours
+      var on = hue && p.fit.colors.join() === cur && p.fit.hue === s.map.hue;
+      p.btn.setAttribute("aria-pressed", String(on)); if (on) hit = p.name;
+    });
+    NEAREST_PRESETS.forEach(function (p) {
+      p.btn.hidden = hue;
+      var on = !hue && p.sorted.join() === all;
       p.btn.setAttribute("aria-pressed", String(on)); if (on) hit = p.name;
     });
     $("hueName").textContent = hit;
+    $("hueAlign").hidden = !hue;
     $("hueAlign").disabled = hueColors().length < 2;
   }
   $("hueAlign").addEventListener("click", function () { var f = lineUp(hueColors(), true); setHueColors(f.colors, f.hue); });

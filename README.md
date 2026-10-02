@@ -14,7 +14,7 @@ Everything runs locally in your browser. Photos are never uploaded anywhere. (Ba
 - **2 to 4 colours,** ordered darkest to lightest. Each colour takes an equal band of the image's tones, with dithered blends in between.
 - **Apply colours by:**
   - **Brightness:** each colour takes a band of tones, shown as a bar with draggable handles so you decide where each colour starts.
-  - **Nearest colour:** each pixel gets whichever of your colours is closest to its real colour, dithered in between (the classic limited-palette look).
+  - **Nearest colour:** each pixel gets whichever of your colours is closest to its real colour, dithered in between (the classic limited-palette look). Presets: CGA cyan & magenta, CGA red, green & yellow, Game Boy, Skin & sky, Forest, Seaside, Primary pop and Neon night.
   - **Hue:** colourful areas are sorted by hue, greys by brightness, with a hue offset to choose which hues land on which colour. Hue presets (Primaries, Rainbow, Warm & cool, Sunset, Nature, CMY, Synthwave, Pop) set colours and offset together so each colour lands on the hues it looks like, and "Line up with my colours" does the same for your own colours.
   - **Pick colours from photo:** chooses the 2 to 4 colours that best represent the image.
   - **Drag to reorder** colours between slots (or Alt + arrow keys).
