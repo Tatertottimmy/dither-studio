@@ -2,7 +2,6 @@
 
 Turn a photo or an animated GIF into a dithered image in 2 to 4 colours, or into ASCII art, right in the browser. Export as a crisp vector SVG, a pixel-perfect PNG, an animated GIF, or plain text.
 
-**Try it:** https://mikemadeit.io/dither/
 
 Everything runs locally in your browser. Photos are never uploaded anywhere.
 
