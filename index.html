@@ -121,6 +121,36 @@
     border: 1px solid var(--line); background: rgba(17,18,20,.85); color: var(--text); cursor: pointer; font-size: .85rem;
   }
   .playbtn:hover { background: var(--surface-2); }
+  .tools { position: absolute; top: 14px; right: 18px; z-index: 3; display: flex; gap: 8px; }
+  .tools .playbtn { position: static; }
+  .tools .playbtn:disabled { cursor: progress; opacity: .85; }
+  .tools .playbtn[aria-pressed="true"] { border-color: var(--accent); }
+  .stage:not(.has-image) .tools { display: none; }
+
+  /* ---------- Crop mode ---------- */
+  .cropper { position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: 1fr auto; background: #0d0e10; }
+  .crop-area { position: relative; min-height: 0; }
+  .crop-area canvas { position: absolute; image-rendering: pixelated; image-rendering: crisp-edges;
+    background: repeating-conic-gradient(#2b2d31 0 25%, #1d1f22 0 50%) 0 0 / 16px 16px; }
+  .crop-shade { position: absolute; background: rgba(0,0,0,.6); pointer-events: none; }
+  .crop-box {
+    position: absolute; cursor: move; touch-action: none;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.95), 0 0 0 2px rgba(0,0,0,.6);
+    background-image:
+      linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,.35)), linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,.35)),
+      linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,.35)), linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,.35));
+    background-size: 1px 100%, 1px 100%, 100% 1px, 100% 1px;
+    background-position: 33.33% 0, 66.66% 0, 0 33.33%, 0 66.66%;
+    background-repeat: no-repeat;
+  }
+  .crop-box:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .crop-h { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.55); touch-action: none; }
+  .crop-h[data-h="nw"] { left: 0; top: 0; cursor: nwse-resize; }   .crop-h[data-h="ne"] { left: 100%; top: 0; cursor: nesw-resize; }
+  .crop-h[data-h="sw"] { left: 0; top: 100%; cursor: nesw-resize; } .crop-h[data-h="se"] { left: 100%; top: 100%; cursor: nwse-resize; }
+  .crop-h[data-h="n"] { left: 50%; top: 0; cursor: ns-resize; }     .crop-h[data-h="s"] { left: 50%; top: 100%; cursor: ns-resize; }
+  .crop-h[data-h="w"] { left: 0; top: 50%; cursor: ew-resize; }     .crop-h[data-h="e"] { left: 100%; top: 50%; cursor: ew-resize; }
+  .crop-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 18px 16px; }
+  .crop-bar .size { font-family: var(--mono); font-size: .8rem; color: var(--muted); margin-right: auto; font-variant-numeric: tabular-nums; }
 
   /* ---------- Fade: two draggable bars over the preview ---------- */
   .fadebars { position: absolute; z-index: 4; pointer-events: none; }
@@ -368,6 +398,36 @@
     <p class="sample-hint" id="sampleHint" hidden>Click the photo to pick a colour. Esc to cancel.</p>
     <div class="loupe" id="loupe" hidden><canvas width="132" height="132"></canvas><span></span></div>
     <p class="info" id="info" aria-live="off"></p>
+    <div class="tools">
+      <button class="playbtn" id="bgBtn" type="button" aria-pressed="false">Remove background</button>
+      <button class="playbtn" id="cropBtn" type="button">Crop</button>
+    </div>
+    <div class="cropper" id="cropper" hidden role="dialog" aria-label="Crop the image">
+      <div class="crop-area" id="cropArea">
+        <canvas id="cropCanvas"></canvas>
+        <div class="crop-shade" id="shadeT"></div><div class="crop-shade" id="shadeB"></div><div class="crop-shade" id="shadeL"></div><div class="crop-shade" id="shadeR"></div>
+        <div class="crop-box" id="cropBox" tabindex="0" aria-label="Crop area. Arrow keys move it, Alt plus arrows resize it, Enter applies, Escape cancels.">
+          <span class="crop-h" data-h="nw"></span><span class="crop-h" data-h="n"></span><span class="crop-h" data-h="ne"></span>
+          <span class="crop-h" data-h="w"></span><span class="crop-h" data-h="e"></span>
+          <span class="crop-h" data-h="sw"></span><span class="crop-h" data-h="s"></span><span class="crop-h" data-h="se"></span>
+        </div>
+      </div>
+      <div class="crop-bar">
+        <span class="size" id="cropSize" aria-live="polite"></span>
+        <div class="patterns" role="radiogroup" aria-label="Crop shape">
+          <label><input type="radio" name="cropRatio" value="free" checked><span>Free</span></label>
+          <label><input type="radio" name="cropRatio" value="orig"><span>Original</span></label>
+          <label><input type="radio" name="cropRatio" value="1"><span>1:1</span></label>
+          <label><input type="radio" name="cropRatio" value="0.8"><span>4:5</span></label>
+          <label><input type="radio" name="cropRatio" value="1.5"><span>3:2</span></label>
+          <label><input type="radio" name="cropRatio" value="1.7778"><span>16:9</span></label>
+          <label><input type="radio" name="cropRatio" value="0.5625"><span>9:16</span></label>
+        </div>
+        <button class="link" id="cropReset" type="button">Reset</button>
+        <button class="btn" id="cropCancel" type="button">Cancel</button>
+        <button class="btn primary" id="cropApply" type="button">Apply crop</button>
+      </div>
+    </div>
     <button class="playbtn" id="playBtn" type="button" hidden aria-label="Pause animation"><span aria-hidden="true">&#10074;&#10074;</span> Pause</button>
     <div class="fadebars" id="fadeBars" hidden>
       <div class="fadeband" id="fadeBand"></div>
@@ -545,6 +605,24 @@
   var asciiOut = null, asciiSampled = null, asciiKey = "", aspect = 0.6;   // aspect = char width / line height
 
   var source = null;   // full-res pixels of the original, for the eyedropper
+  // Crop: the part of the DITHERED result to keep, as fractions of the whole ({x, y, w, h} in 0..1),
+  // or null. It's applied after dithering, so what's inside the crop box is exactly what you get,
+  // and it survives density changes.
+  var crop = null;
+  // Background removal: `original` is the still as loaded and `cutout` its version with the
+  // background removed (animations keep a `cut` canvas per frame). `bgOff` picks the cut-out.
+  var original = null, cutout = null, bgOff = false, loadedAlpha = false;
+  function frameSrc(i) { var f = anim.frames[i]; return bgOff && f.cut ? f.cut : f.canvas; }
+  // The dot (or character) rectangle the crop covers on a w x h grid.
+  function cropGrid(w, h) {
+    var x0 = Math.round(crop.x * w), y0 = Math.round(crop.y * h);
+    return { x: x0, y: y0, w: Math.max(1, Math.min(w - x0, Math.round((crop.x + crop.w) * w) - x0)), h: Math.max(1, Math.min(h - y0, Math.round((crop.y + crop.h) * h) - y0)) };
+  }
+  function cutGrid(a, w, g, n) {                          // n values per cell
+    var o = new a.constructor(g.w * g.h * n);
+    for (var y = 0; y < g.h; y++) for (var x = 0; x < g.w * n; x++) o[y * g.w * n + x] = a[((g.y + y) * w + g.x) * n + x];
+    return o;
+  }
   var anim = null;     // an animated GIF: { frames: [{ canvas, delay }], i, playing, timer }
   var pre = null;      // an already-dithered image: { w, h, idx, palette } used pixel-for-pixel
   function pal() { return pre ? pre.palette : s.colors; }
@@ -556,7 +634,8 @@
   // ---- render pipeline (sampling is cached; only redone when density/photo changes) ----
   // One dithered frame from any source (the still image, or a GIF frame). `live` uses the
   // preview's cached sampling; exports pass false so every frame is processed fresh.
-  function computeDither(src, live) {
+  // `full` skips the crop (the crop box shows the whole result).
+  function computeDither(src, live, full) {
     var base, w, h;
     if (pre && live) { base = pre.idx; w = pre.w; h = pre.h; }
     else {
@@ -570,6 +649,7 @@
       if (!s.alpha.keep && pre.hasAlpha)                    // transparency off: fill gaps with the lightest colour
         base = base.map(function (v) { return v === DitherCore.CLEAR ? pre.palette.length - 1 : v; });
     } else if (s.alpha.keep && smp.hasAlpha) base = DitherCore.applyMask(base, DitherCore.alphaMask(smp.A, w, h, s.alpha.edge));
+    if (crop && !full) { var g = cropGrid(w, h); base = cutGrid(base, w, g, 1); w = g.w; h = g.h; }
     var P = pal();
     var idx = s.fade.on ? DitherCore.fade(base, w, h, { edge: s.fade.edge, a: s.fade.a, b: s.fade.b, color: Math.min(s.fade.color, P.length - 1) }) : base;
     return { idx: idx, w: w, h: h };
@@ -612,7 +692,7 @@
   function fit() {
     if (!img) return;
     var r = stage.getBoundingClientRect(), pad = 48;
-    var aspect = img.naturalWidth / img.naturalHeight;
+    var aspect = s.mode === "dither" && dims ? dims.w / dims.h : img.naturalWidth / img.naturalHeight * (crop ? crop.w / crop.h : 1);
     var w = Math.min(r.width - pad, (r.height - pad) * aspect);
     out.style.width = $("srcView").style.width = Math.round(w) + "px";
     out.style.height = $("srcView").style.height = Math.round(w / aspect) + "px";
@@ -823,8 +903,9 @@
       g.frames.forEach(function (f) { f.canvas.naturalWidth = g.width; f.canvas.naturalHeight = g.height; });
       anim = { frames: g.frames, i: 0, playing: !matchMedia("(prefers-reduced-motion: reduce)").matches, timer: 0 };
       fileName = (file.name || "animation").replace(/\.[^.]+$/, "") || "animation";
+      original = null; resetTools();
       img = g.frames[0].canvas; sampled = null; source = null; asciiKey = ""; pre = null;
-      srcHasAlpha = g.frames.slice(0, 5).some(function (f) { return DitherCore.sample(f.canvas, 160).hasAlpha; });
+      srcHasAlpha = loadedAlpha = g.frames.slice(0, 5).some(function (f) { return DitherCore.sample(f.canvas, 160).hasAlpha; });
       syncAlpha();
       renderColors(); syncMode(); setPlayButton();
       stage.classList.add("has-image");
@@ -838,7 +919,7 @@
   function stopAnim() { if (anim) clearTimeout(anim.timer); anim = null; $("exportGif").hidden = true; $("playBtn").hidden = true; }
   function showFrame(i) {
     anim.i = (i + anim.frames.length) % anim.frames.length;
-    img = anim.frames[anim.i].canvas; sampled = null; source = null; asciiKey = "";
+    img = frameSrc(anim.i); sampled = null; source = null; asciiKey = "";
     render();
   }
   function nextFrame() {
@@ -868,6 +949,7 @@
     var url = URL.createObjectURL(file), im = new Image();
     im.onload = function () {
       stopAnim();
+      original = im; resetTools();
       img = im; sampled = null; source = null; asciiKey = "";
       pre = DitherCore.readPredithered(im);
       srcHasAlpha = pre ? pre.hasAlpha : DitherCore.sample(im, 160).hasAlpha;
@@ -976,14 +1058,14 @@
         btn.textContent = "Encoding " + (i + 1) + "/" + n + "\u2026";
         var f = anim.frames[i];
         if (ascii) {
-          var res = computeAscii(f.canvas, false), c = document.createElement("canvas");
+          var res = computeAscii(frameSrc(i), false), c = document.createElement("canvas");
           Ascii.paint(c, res.lines, { fs: 9 * k, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: res.colors, clear: s.ascii.clear });
           W = c.width; H = c.height;
           var d = c.getContext("2d").getImageData(0, 0, W, H).data, idx = new Uint8Array(W * H);
           for (var p = 0, q = 0; p < idx.length; p++, q += 4) idx[p] = apal.map(d[q], d[q + 1], d[q + 2], d[q + 3]);
           frames.push({ idx: idx, delay: f.delay });
         } else {
-          var r = computeDither(f.canvas, false);
+          var r = computeDither(frameSrc(i), false);
           W = r.w * k; H = r.h * k;
           var up = nearestUp(r.idx, r.w, r.h, k);
           for (var j = 0; j < up.length; j++) if (up[j] === DitherCore.CLEAR) { up[j] = palette.length; usesClear = true; }
@@ -1048,7 +1130,7 @@
     return Ascii.SETS[s.ascii.set] || Ascii.SETS.classic;
   }
   // One ASCII frame (lines + optional per-character colours) from any source.
-  function computeAscii(src, live) {
+  function computeAscii(src, live, full) {
     var a = s.ascii, braille = a.set === "braille";
     // Sampling can't go wider than the image, so size rows from the columns actually used
     // (otherwise small images come out stretched).
@@ -1074,6 +1156,11 @@
                                     : DitherCore.dither(DitherCore.hueValue(F, nc * rows, s.map.hue), nc, rows, s.algo, k);
       }
       colors = Ascii.colorsFromIdx(ci, a.inks);
+    }
+    if (crop && !full && nc) {
+      var g = cropGrid(nc, lines.length);
+      if (colors) colors = cutGrid(colors, nc, g, 3);
+      lines = lines.slice(g.y, g.y + g.h).map(function (l) { return Array.from(l).slice(g.x, g.x + g.w).join(""); });
     }
     return { lines: lines, colors: colors };
   }
@@ -1310,13 +1397,217 @@
     document.fonts.load('16px "Geist Mono"').then(function () { aspect = Ascii.cellAspect(); asciiKey = ""; queue(); });
   } else aspect = Ascii.cellAspect();
 
+  // ---- Crop (on the dithered result) ----
+  // The box snaps to whole dots (or characters in ASCII mode). The ratio presets are on-screen shapes.
+  var cr = null;            // { W, H (grid size), ua (on-screen width/height of one cell), kx, ky, ox, oy, r (box in cells) }
+  function ratioValue() {
+    var v = (document.querySelector("input[name=cropRatio]:checked") || {}).value || "free";
+    return v === "free" ? 0 : v === "orig" ? cr.W / cr.H : +v / cr.ua;   // in cells
+  }
+  function openCrop() {
+    if (!img) return;
+    if (anim && anim.playing) $("playBtn").click();               // hold still while cropping
+    var cv = $("cropCanvas"), W, H;
+    if (s.mode === "ascii") {
+      var res = computeAscii(img, true, true);
+      W = res.lines[0] ? Array.from(res.lines[0]).length : 1; H = res.lines.length;
+      Ascii.paint(cv, res.lines, { fs: Math.max(6, Math.min(24, Math.round(1600 / (W * aspect)))), ink: s.ascii.inks[0], paper: s.ascii.paper, colors: res.colors, clear: s.ascii.clear });
+    } else {
+      var r = computeDither(img, true, true); W = r.w; H = r.h;
+      DitherCore.paint(cv, r.idx, W, H, pal());
+    }
+    cr = { W: W, H: H, ua: (cv.width / W) / (cv.height / H) };
+    cr.r = crop ? cropGrid(W, H) : { x: 0, y: 0, w: W, h: H };
+    $("cropper").hidden = false;
+    layoutCrop();
+    $("cropBox").focus();
+  }
+  function layoutCrop() {
+    var area = $("cropArea").getBoundingClientRect(), pad = 20, cv = $("cropCanvas");
+    var ar = cv.width / cv.height, dw = Math.min(area.width - pad * 2, (area.height - pad * 2) * ar), dh = dw / ar;
+    cr.kx = dw / cr.W; cr.ky = dh / cr.H; cr.ox = (area.width - dw) / 2; cr.oy = (area.height - dh) / 2;
+    cv.style.width = dw + "px"; cv.style.height = dh + "px"; cv.style.left = cr.ox + "px"; cv.style.top = cr.oy + "px";
+    drawCropBox();
+  }
+  function drawCropBox() {
+    var r = cr.r, x = cr.ox + r.x * cr.kx, y = cr.oy + r.y * cr.ky, w = r.w * cr.kx, h = r.h * cr.ky;
+    var b = $("cropBox"); b.style.left = x + "px"; b.style.top = y + "px"; b.style.width = w + "px"; b.style.height = h + "px";
+    var dw = cr.W * cr.kx, dh = cr.H * cr.ky;
+    function shade(id, l, t, ww, hh) { var e = $(id); e.style.left = l + "px"; e.style.top = t + "px"; e.style.width = Math.max(0, ww) + "px"; e.style.height = Math.max(0, hh) + "px"; }
+    shade("shadeT", cr.ox, cr.oy, dw, y - cr.oy);
+    shade("shadeB", cr.ox, y + h, dw, cr.oy + dh - y - h);
+    shade("shadeL", cr.ox, y, x - cr.ox, h);
+    shade("shadeR", x + w, y, cr.ox + dw - x - w, h);
+    $("cropSize").textContent = r.w + " × " + r.h + (s.mode === "ascii" ? " characters" : " dots") + (r.w === cr.W && r.h === cr.H ? " (everything)" : "");
+  }
+  // Keep a box inside the grid, at least 2 cells, whole cells only, at the locked shape if there is one.
+  // `pin` keeps the far corner fixed while resizing from a west/north edge.
+  function fitRect(r, pin) {
+    var R = ratioValue(), MIN = 2;
+    r.w = Math.max(MIN, Math.min(cr.W, r.w)); r.h = Math.max(MIN, Math.min(cr.H, r.h));
+    if (R) {
+      if (r.w / r.h > R) r.w = r.h * R; else r.h = r.w / R;
+      if (r.w > cr.W) { r.w = cr.W; r.h = r.w / R; } if (r.h > cr.H) { r.h = cr.H; r.w = r.h * R; }
+    }
+    r.w = Math.max(1, Math.round(r.w)); r.h = Math.max(1, Math.round(r.h));
+    if (pin && pin.w) r.x = pin.right - r.w;
+    if (pin && pin.n) r.y = pin.bottom - r.h;
+    r.x = Math.round(Math.max(0, Math.min(cr.W - r.w, r.x))); r.y = Math.round(Math.max(0, Math.min(cr.H - r.h, r.y)));
+    return r;
+  }
+  function toGrid(e) { var a = $("cropArea").getBoundingClientRect(); return { x: (e.clientX - a.left - cr.ox) / cr.kx, y: (e.clientY - a.top - cr.oy) / cr.ky }; }
+  var drag = null;
+  $("cropArea").addEventListener("pointerdown", function (e) {
+    if (!cr || e.button !== 0) return;
+    var h = e.target.dataset && e.target.dataset.h, p = toGrid(e);
+    if (h) drag = { kind: "resize", h: h, start: Object.assign({}, cr.r), p: p };
+    else if (e.target.id === "cropBox") drag = { kind: "move", start: Object.assign({}, cr.r), p: p };
+    else drag = { kind: "new", p: { x: Math.max(0, Math.min(cr.W, p.x)), y: Math.max(0, Math.min(cr.H, p.y)) } };
+    $("cropArea").setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  $("cropArea").addEventListener("pointermove", function (e) {
+    if (!drag || !$("cropArea").hasPointerCapture(e.pointerId)) return;
+    var p = toGrid(e), s0 = drag.start;
+    if (drag.kind === "move") cr.r = fitRect({ x: s0.x + p.x - drag.p.x, y: s0.y + p.y - drag.p.y, w: s0.w, h: s0.h });
+    else if (drag.kind === "new") {
+      var x = Math.max(0, Math.min(cr.W, p.x)), y = Math.max(0, Math.min(cr.H, p.y));
+      cr.r = fitRect({ x: Math.min(x, drag.p.x), y: Math.min(y, drag.p.y), w: Math.abs(x - drag.p.x), h: Math.abs(y - drag.p.y) },
+                     { w: x < drag.p.x, n: y < drag.p.y, right: drag.p.x, bottom: drag.p.y });
+    } else {
+      var dx = p.x - drag.p.x, dy = p.y - drag.p.y, h = drag.h, L = s0.x, T = s0.y, Rr = s0.x + s0.w, B = s0.y + s0.h;
+      if (h.indexOf("w") >= 0) L = Math.min(Rr - 2, Math.max(0, s0.x + dx));
+      if (h.indexOf("e") >= 0) Rr = Math.max(L + 2, Math.min(cr.W, Rr + dx));
+      if (h.indexOf("n") >= 0) T = Math.min(B - 2, Math.max(0, s0.y + dy));
+      if (h.indexOf("s") >= 0) B = Math.max(T + 2, Math.min(cr.H, B + dy));
+      cr.r = fitRect({ x: L, y: T, w: Rr - L, h: B - T }, { w: h.indexOf("w") >= 0, n: h.indexOf("n") >= 0, right: Rr, bottom: B });
+    }
+    drawCropBox();
+  });
+  $("cropArea").addEventListener("pointerup", function () { drag = null; });
+  $("cropBox").addEventListener("keydown", function (e) {
+    var st = e.shiftKey ? 10 : 1, r = Object.assign({}, cr.r), d = { ArrowLeft: [-st, 0], ArrowRight: [st, 0], ArrowUp: [0, -st], ArrowDown: [0, st] }[e.key];
+    if (e.key === "Enter") { e.preventDefault(); return applyCrop(); }
+    if (e.key === "Escape") { e.preventDefault(); return closeCrop(); }
+    if (!d) return;
+    e.preventDefault();
+    if (e.altKey) { r.w += d[0]; r.h += d[1]; } else { r.x += d[0]; r.y += d[1]; }
+    cr.r = fitRect(r); drawCropBox();
+  });
+  document.querySelectorAll("input[name=cropRatio]").forEach(function (i) {
+    i.addEventListener("change", function () {             // re-fit the current box, centred, to the new shape
+      if (!cr) return;
+      var r = cr.r, cx = r.x + r.w / 2, cy = r.y + r.h / 2, R = ratioValue(), w = r.w, h = r.h;
+      if (R) { if (w / h > R) w = h * R; else h = w / R; }
+      cr.r = fitRect({ x: cx - w / 2, y: cy - h / 2, w: w, h: h }); drawCropBox();
+    });
+  });
+  function closeCrop() { $("cropper").hidden = true; cr = null; drag = null; $("cropBtn").focus(); }
+  function applyCrop() {
+    var r = cr.r, whole = r.x === 0 && r.y === 0 && r.w === cr.W && r.h === cr.H;
+    crop = whole ? null : { x: r.x / cr.W, y: r.y / cr.H, w: r.w / cr.W, h: r.h / cr.H };
+    source = null;
+    $("cropBtn").textContent = crop ? "Cropped" : "Crop"; $("cropBtn").setAttribute("aria-pressed", String(!!crop));
+    closeCrop(); render();
+  }
+  $("cropBtn").addEventListener("click", openCrop);
+  $("cropCancel").addEventListener("click", closeCrop);
+  $("cropApply").addEventListener("click", applyCrop);
+  $("cropReset").addEventListener("click", function () {
+    document.querySelector("input[name=cropRatio][value=free]").checked = true;
+    cr.r = { x: 0, y: 0, w: cr.W, h: cr.H }; drawCropBox();
+  });
+  window.addEventListener("resize", function () { if (cr) layoutCrop(); });
+
+  // ---- Remove background ----
+  // A cut-out model (ISNet, via @imgly/background-removal) runs in the browser: the model is
+  // downloaded once and cached, and the photo never leaves the device. The result becomes a
+  // see-through source, so the usual transparency options apply. Toggle to bring it back.
+  var BG_LIB = "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm";
+  var bgLib = null, bgJob = null;
+  function bgLabel() {
+    var b = $("bgBtn"); b.disabled = false;
+    b.textContent = bgOff ? "Restore background" : "Remove background"; b.setAttribute("aria-pressed", String(bgOff));
+  }
+  function resetTools() {                                // a new image: no crop, background back, stop any job
+    if (bgJob) bgJob.cancelled = true;
+    bgJob = null; crop = null; cutout = null; bgOff = false;
+    $("cropBtn").textContent = "Crop"; $("cropBtn").setAttribute("aria-pressed", "false"); bgLabel();
+  }
+  function sourceChanged() {
+    sampled = null; source = null; asciiKey = "";
+    if (anim) { img = frameSrc(anim.i); srcHasAlpha = bgOff || loadedAlpha; }
+    else {
+      img = bgOff ? cutout : original;
+      pre = DitherCore.readPredithered(img);
+      srcHasAlpha = pre ? pre.hasAlpha : DitherCore.sample(img, 160).hasAlpha;
+    }
+    syncAlpha(); renderColors(); syncMode(); render();
+  }
+  function asCanvas(bitmap) {
+    var c = document.createElement("canvas"); c.width = bitmap.width; c.height = bitmap.height;
+    c.getContext("2d").drawImage(bitmap, 0, 0);
+    c.naturalWidth = c.width; c.naturalHeight = c.height;
+    return c;
+  }
+  function pngOf(src) {
+    var c = document.createElement("canvas"); c.width = src.naturalWidth || src.width; c.height = src.naturalHeight || src.height;
+    c.getContext("2d").drawImage(src, 0, 0);
+    return new Promise(function (res) { c.toBlob(res, "image/png"); });
+  }
+  $("bgBtn").addEventListener("click", function () {
+    if (!img) return;
+    if (bgJob) { bgJob.cancelled = true; return; }      // clicking while it runs cancels
+    var have = anim ? anim.frames.every(function (f) { return f.cut; }) : !!cutout;
+    if (bgOff || have) { bgOff = !bgOff; bgLabel(); sourceChanged(); return; }
+    var job = bgJob = { cancelled: false }, btn = this, got = {}, cutLabel = "Cutting out…";
+    if (anim && anim.playing) $("playBtn").click();
+    btn.textContent = "Loading…"; btn.setAttribute("aria-pressed", "true");
+    $("info").textContent = "Getting the cut-out model ready (downloads once, then it's cached)…";
+    var config = {
+      progress: function (key, cur, total) {             // sum every file being downloaded
+        if (job.cancelled || !/^fetch:/.test(key) || !total) return;
+        got[key] = [cur, total];
+        var c = 0, t = 0; for (var k in got) { c += got[k][0]; t += got[k][1]; }
+        btn.textContent = c < t ? "Downloading " + Math.round(c / t * 100) + "%" : cutLabel;
+      },
+      output: { format: "image/png", type: "foreground" }
+    };
+    var srcs = anim ? anim.frames.map(function (f) { return f.canvas; }) : [original];
+    (bgLib || (bgLib = import(BG_LIB))).then(function (lib) {
+      var i = 0, outs = [];
+      function next() {
+        if (job.cancelled) throw new Error("cancelled");
+        if (i >= srcs.length) return outs;
+        btn.textContent = cutLabel = srcs.length > 1 ? "Cutting out " + (i + 1) + "/" + srcs.length : "Cutting out…";
+        $("info").textContent = (srcs.length > 1 ? "Finding the subject in every frame (a few seconds each)" : "Finding the subject") + "… click the button again to cancel.";
+        return pngOf(srcs[i]).then(function (blob) { return lib.removeBackground(blob, config); })
+          .then(createImageBitmap).then(function (bm) { outs.push(asCanvas(bm)); i++; return next(); });
+      }
+      return next();
+    }).then(function (outs) {
+      if (job !== bgJob) return;                          // a new image arrived meanwhile
+      bgJob = null;
+      if (anim) anim.frames.forEach(function (f, k) { f.cut = outs[k]; }); else cutout = outs[0];
+      bgOff = true;
+      if (!s.alpha.keep) { s.alpha.keep = true; save(); }   // show the cut as see-through
+      bgLabel(); sourceChanged();
+    }).catch(function (err) {
+      if (job !== bgJob) return;
+      bgJob = null; bgLabel();
+      if (err && err.message === "cancelled") { $("info").textContent = "Background removal cancelled."; return; }
+      $("info").textContent = "Couldn't remove the background (" + ((err && err.message) || "unknown error") + "). Check your connection and try again.";
+      bgLib = null;
+    });
+  });
+
   // ---- In-page eyedropper: pick from the ORIGINAL photo (works in every browser) ----
   function getSource() {
     if (source) return source;
-    var k = Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight));   // cap memory
+    var W = img.naturalWidth, H = img.naturalHeight, r = crop || { x: 0, y: 0, w: 1, h: 1 };   // only the cropped part
+    var sw = r.w * W, sh = r.h * H, k = Math.min(1, 2048 / Math.max(sw, sh));                 // cap memory
     var c = document.createElement("canvas");
-    c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
-    var cx = c.getContext("2d", { willReadFrequently: true }); cx.drawImage(img, 0, 0, c.width, c.height);
+    c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k));
+    var cx = c.getContext("2d", { willReadFrequently: true }); cx.drawImage(img, r.x * W, r.y * H, sw, sh, 0, 0, c.width, c.height);
     source = { canvas: c, w: c.width, h: c.height, data: cx.getImageData(0, 0, c.width, c.height).data };
     return source;
   }

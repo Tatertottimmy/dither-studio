@@ -3,7 +3,7 @@
 Turn a photo or an animated GIF into a dithered image in 2 to 4 colours, or into ASCII art, right in the browser. Export as a crisp vector SVG, a pixel-perfect PNG, an animated GIF, or plain text.
 
 
-Everything runs locally in your browser. Photos are never uploaded anywhere.
+Everything runs locally in your browser. Photos are never uploaded anywhere. (Background removal downloads its model from a CDN the first time you use it; your photo stays on your device.)
 
 ## Features
 
@@ -22,6 +22,8 @@ Everything runs locally in your browser. Photos are never uploaded anywhere.
 - **Colour picker:** saturation/brightness field with hue slider, hex input, RGB sliders, presets, and an eyedropper that picks straight from your original photo (works in every browser) with a magnifier loupe.
 - **Fade:** dissolve the top or bottom edge into one of your colours with an ordered dither, using two draggable bars on the preview. Handy for letting pixel art blend into a page background.
 - **Re-open your own exports:** drop in an image that's already dithered (4 colours or fewer) and its pixels are used exactly as they are, so you can recolour it or add a fade without re-dithering.
+- **Crop** the dithered result: drag a box over the actual dots (or characters in ASCII mode), with Free, Original, 1:1, 4:5, 3:2, 16:9 and 9:16 shapes, rule-of-thirds guides, and arrow-key nudging. The box snaps to whole dots, so you get exactly what's inside it, and the crop holds when you change the density. Works on animated GIFs and already-dithered images too.
+- **Remove background** in one click: a cut-out model finds the subject and makes everything else see-through, then the transparency options take over. It runs in your browser (the model, about 40 MB, downloads once and is cached). Toggle it to bring the background back. Works on animated GIFs frame by frame (a few seconds per frame), and can be cancelled.
 - **Export** as SVG (runs of same-colour pixels are merged into single shapes, so it stays sharp at any size) or PNG at 1x to 8x.
 - **ASCII mode:** turn the photo into text art.
   - Character sets: Classic (` .:-=+*#%@`), Detailed (a 70-character ramp), Blocks (` ░▒▓█`), Braille (each character is a 2x4 grid of dots, for about 8x the detail), or your own custom ramp.
@@ -50,6 +52,10 @@ then open http://localhost:8000/. (Opening `index.html` directly from disk also 
 | `ascii.js` | ASCII mode: character sets, Braille packing, drawing, text and SVG export |
 | `gif.js` | Animated GIF decoder (disposal, transparency, interlacing, local palettes) and encoder |
 | `picker.js` | The colour picker popover |
+
+## Credits
+
+Background removal uses [@imgly/background-removal](https://github.com/imgly/background-removal-js) (AGPL-3.0), loaded from a CDN when you first use it.
 
 ## License
 
