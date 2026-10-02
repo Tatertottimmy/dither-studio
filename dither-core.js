@@ -19,10 +19,12 @@
   var BAYER = { 2: bayer(2), 4: bayer(4), 8: bayer(8) };
 
   // Downscale the source to `cols` dots across (stepwise halving keeps it sharp-but-smooth).
-  function sample(img, cols) {
+  // `rows` is optional (ASCII mode passes it, since character cells aren't square).
+  // Returns luminance L plus each cell's colour (rgb, 3 bytes per cell) for tinting.
+  function sample(img, cols, rowsWanted) {
     var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
     cols = Math.max(8, Math.min(cols, iw));
-    var rows = Math.max(1, Math.round(cols * ih / iw));
+    var rows = Math.max(1, Math.min(ih, rowsWanted || Math.round(cols * ih / iw)));
     var src = img, w = iw, h = ih;
     while (w / 2 > cols) {
       var c = document.createElement("canvas");
@@ -34,12 +36,13 @@
     var out = document.createElement("canvas"); out.width = cols; out.height = rows;
     var ox = out.getContext("2d", { willReadFrequently: true });
     ox.imageSmoothingQuality = "high"; ox.drawImage(src, 0, 0, cols, rows);
-    var d = ox.getImageData(0, 0, cols, rows).data, L = new Float32Array(cols * rows);
+    var d = ox.getImageData(0, 0, cols, rows).data, L = new Float32Array(cols * rows), rgb = new Uint8ClampedArray(cols * rows * 3);
     for (var i = 0; i < L.length; i++) {
       var a = d[i * 4 + 3] / 255;                     // transparent pixels read as paper
       L[i] = (0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255 * a + (1 - a);
+      rgb[i * 3] = d[i * 4]; rgb[i * 3 + 1] = d[i * 4 + 1]; rgb[i * 3 + 2] = d[i * 4 + 2];
     }
-    return { w: cols, h: rows, L: L };
+    return { w: cols, h: rows, L: L, rgb: rgb };
   }
 
   // Tone adjustments, in this order: brightness, contrast, gamma, sharpen.

@@ -1,6 +1,6 @@
 # Dither Studio
 
-Turn a photo into a dithered image in 2 to 4 colours, right in the browser, and export it as a crisp vector SVG or a pixel-perfect PNG.
+Turn a photo into a dithered image in 2 to 4 colours, or into ASCII art, right in the browser. Export as a crisp vector SVG, a pixel-perfect PNG, or plain text.
 
 **Try it:** https://mikemadeit.io/dither/
 
@@ -16,6 +16,11 @@ Everything runs locally in your browser. Photos are never uploaded anywhere.
 - **Fade:** dissolve the top or bottom edge into one of your colours with an ordered dither, using two draggable bars on the preview. Handy for letting pixel art blend into a page background.
 - **Re-open your own exports:** drop in an image that's already dithered (4 colours or fewer) and its pixels are used exactly as they are, so you can recolour it or add a fade without re-dithering.
 - **Export** as SVG (runs of same-colour pixels are merged into single shapes, so it stays sharp at any size) or PNG at 1x to 8x.
+- **ASCII mode:** turn the photo into text art.
+  - Character sets: Classic (` .:-=+*#%@`), Detailed (a 70-character ramp), Blocks (` ░▒▓█`), Braille (each character is a 2x4 grid of dots, for about 8x the detail), or your own custom ramp.
+  - The dither patterns choose which character goes where, so shading stays smooth instead of banding.
+  - Text and background colours, plus an option to tint every character with the photo's own colour.
+  - Export: copy to clipboard, `.txt`, SVG (real text, each line pinned to an exact width so the grid lines up in any monospace font) or PNG.
 - Settings are remembered between visits.
 
 ## Run it yourself
@@ -34,6 +39,7 @@ then open http://localhost:8000/. (Opening `index.html` directly from disk also 
 | --- | --- |
 | `index.html` | The app: layout, styles, controls, preview, eyedropper, fade bars, export |
 | `dither-core.js` | The image pipeline: sampling, tone adjustments, dithering algorithms, fade, SVG export |
+| `ascii.js` | ASCII mode: character sets, Braille packing, drawing, text and SVG export |
 | `picker.js` | The colour picker popover |
 
 ## License
