@@ -23,6 +23,7 @@ Everything runs locally in your browser. Photos are never uploaded anywhere.
   - The dither patterns choose which character goes where, so shading stays smooth instead of banding.
   - A background colour plus 1 to 3 text colours: each text colour takes a band of tones (shadows, midtones, highlights), dithered between neighbours so it blends instead of banding. Or tint every character with the photo's own colour instead.
   - Export: copy to clipboard, `.txt`, SVG (real text, each line pinned to an exact width so the grid lines up in any monospace font) or PNG.
+- **Transparency:** see-through areas in PNG, GIF or WebP sources stay see-through, with dithered or hard edges, shown over a checkerboard. PNG, SVG and GIF exports keep it (GIF frames clear between each other, so animations don't ghost). ASCII mode can also use a transparent background, so the text floats over anything.
 - Settings are remembered between visits.
 
 ## Run it yourself

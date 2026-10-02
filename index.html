@@ -73,6 +73,8 @@
   }
   .stage.dragging { box-shadow: inset 0 0 0 2px var(--accent); }
   #out { display: none; image-rendering: pixelated; image-rendering: crisp-edges; }
+  /* checkerboard shows through anything see-through */
+  #out { background: repeating-conic-gradient(#2b2d31 0 25%, #1d1f22 0 50%) 0 0 / 16px 16px; }
   #out, #srcView { grid-area: 1 / 1; }
   #srcView { display: none; cursor: crosshair; touch-action: none; }
   .stage.sampling #srcView { display: block; }
@@ -96,6 +98,7 @@
     background: var(--bg); color: var(--text);
   }
   .cp.sampling { visibility: hidden; }
+  .blob.off { opacity: .3; }
   .playbtn {
     position: absolute; right: 18px; bottom: 12px; z-index: 3;
     display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
@@ -392,8 +395,22 @@
         <div class="divider" aria-hidden="true"></div>
         <div class="inks" id="asciiInks" role="list" aria-label="Text colours"></div>
       </div>
+      <label class="tint-row"><span>Transparent background</span>
+        <span class="switch"><input type="checkbox" id="asciiClear"><span class="track" aria-hidden="true"></span></span></label>
       <label class="tint-row"><span>Tint text with the photo's colours instead</span>
         <span class="switch"><input type="checkbox" id="asciiTint"><span class="track" aria-hidden="true"></span></span></label>
+    </div>
+
+    <div class="group" id="alphaGroup" hidden>
+      <div class="group-head">
+        <h3 id="alphaLabel">Transparency</h3>
+        <label class="switch"><input type="checkbox" id="alphaKeep" aria-labelledby="alphaLabel"><span class="track" aria-hidden="true"></span></label>
+      </div>
+      <div class="patterns" role="radiogroup" aria-label="Transparent edges">
+        <label><input type="radio" name="alphaEdge" value="dither"><span>Dithered edges</span></label>
+        <label><input type="radio" name="alphaEdge" value="hard"><span>Hard edges</span></label>
+      </div>
+      <p class="note" style="margin-top:10px">This image has see-through areas. They stay transparent in PNG, SVG and GIF exports.</p>
     </div>
 
     <div class="group" id="charGroup" hidden>
@@ -457,9 +474,9 @@
   </aside>
 </main>
 
-<script src="dither-core.js?v=202610021344"></script>
-<script src="gif.js?v=202610021458"></script>
-<script src="ascii.js?v=202610021415"></script>
+<script src="dither-core.js?v=202610021513"></script>
+<script src="gif.js?v=202610021510"></script>
+<script src="ascii.js?v=202610021510"></script>
 <script src="picker.js?v=202610012008"></script>
 <script>
 (function () {
@@ -468,7 +485,8 @@
   var DEFAULTS = { colors: ["#2c2d30", "#d3d4d1"], algo: "floyd", cols: 480, brightness: 0, contrast: 10, gamma: 1, sharpen: 0.6,
                    fade: { on: false, edge: "bottom", a: 0.62, b: 0.96, color: 0 },
                    mode: "dither",
-                   ascii: { cols: 120, set: "classic", custom: " .oO@", inks: ["#e9ece8"], paper: "#111214", tint: false } };
+                   alpha: { keep: true, edge: "dither" },
+                   ascii: { cols: 120, set: "classic", custom: " .oO@", inks: ["#e9ece8"], paper: "#111214", tint: false, clear: false } };
   var KEY = "dither-settings";
   var s = Object.assign({}, DEFAULTS);
   var saved = {};
@@ -479,6 +497,8 @@
   delete s.ink; delete s.paper;
   if (!Array.isArray(s.colors) || s.colors.length < 2) s.colors = DEFAULTS.colors.slice();
   s.fade = Object.assign({}, DEFAULTS.fade, s.fade || {});
+  s.alpha = Object.assign({}, DEFAULTS.alpha, s.alpha || {});
+  var srcHasAlpha = false;   // does the loaded image have see-through areas?
   var savedAscii = saved.ascii || {};
   s.ascii = Object.assign({}, DEFAULTS.ascii, savedAscii);
   if (savedAscii.ink && !Array.isArray(savedAscii.inks)) s.ascii.inks = [savedAscii.ink];   // older single-ink settings
@@ -506,13 +526,20 @@
       var smp;
       if (live) { if (!sampled || sampledCols !== s.cols) { sampled = DitherCore.sample(src, s.cols); sampledCols = s.cols; } smp = sampled; }
       else smp = DitherCore.sample(src, s.cols);
-      base = DitherCore.dither(DitherCore.adjust(smp, s), smp.w, smp.h, s.algo, s.colors.length);
+      base = DitherCore.dither(DitherCore.adjust(toneSource(smp), s), smp.w, smp.h, s.algo, s.colors.length);
       w = smp.w; h = smp.h;
     }
+    if (pre && live) {
+      if (!s.alpha.keep && pre.hasAlpha)                    // transparency off: fill gaps with the lightest colour
+        base = base.map(function (v) { return v === DitherCore.CLEAR ? pre.palette.length - 1 : v; });
+    } else if (s.alpha.keep && smp.hasAlpha) base = DitherCore.applyMask(base, DitherCore.alphaMask(smp.A, w, h, s.alpha.edge));
     var P = pal();
     var idx = s.fade.on ? DitherCore.fade(base, w, h, { edge: s.fade.edge, a: s.fade.a, b: s.fade.b, color: Math.min(s.fade.color, P.length - 1) }) : base;
     return { idx: idx, w: w, h: h };
   }
+  // Keeping transparency: dither edge pixels by their real colour (the mask handles the fade).
+  // Not keeping it: see-through areas read as the light paper, as before.
+  function toneSource(smp) { return s.alpha.keep && smp.hasAlpha ? Object.assign({}, smp, { L: smp.Lraw }) : smp; }
   function frameInfo() { return anim ? ", frame " + (anim.i + 1) + " of " + anim.frames.length : ""; }
 
   function render() {
@@ -564,6 +591,7 @@
     syncFade();
     syncAscii();
     syncMode();
+    syncAlpha();
     markTheme();
   }
 
@@ -702,6 +730,8 @@
       anim = { frames: g.frames, i: 0, playing: !matchMedia("(prefers-reduced-motion: reduce)").matches, timer: 0 };
       fileName = (file.name || "animation").replace(/\.[^.]+$/, "") || "animation";
       img = g.frames[0].canvas; sampled = null; source = null; asciiKey = ""; pre = null;
+      srcHasAlpha = g.frames.slice(0, 5).some(function (f) { return DitherCore.sample(f.canvas, 160).hasAlpha; });
+      syncAlpha();
       renderColors(); syncMode(); setPlayButton();
       stage.classList.add("has-image");
       $("exportSvg").disabled = $("exportPng").disabled = $("copyText").disabled = $("exportTxt").disabled = false;
@@ -746,6 +776,8 @@
       stopAnim();
       img = im; sampled = null; source = null; asciiKey = "";
       pre = DitherCore.readPredithered(im);
+      srcHasAlpha = pre ? pre.hasAlpha : DitherCore.sample(im, 160).hasAlpha;
+      syncAlpha();
       renderColors();
       syncMode();                       // applies the "already dithered" lock (Dither mode only)
       stage.classList.add("has-image");
@@ -780,7 +812,7 @@
   $("exportSvg").addEventListener("click", function () {
     if (s.mode === "ascii") {
       if (!asciiOut) return;
-      download(new Blob([Ascii.toSVG(asciiOut.lines, { aspect: aspect, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors, exact: !s.ascii.tint })],
+      download(new Blob([Ascii.toSVG(asciiOut.lines, { aspect: aspect, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors, exact: !s.ascii.tint, clear: s.ascii.clear })],
         { type: "image/svg+xml" }), fileName + "-ascii.svg");
       return;
     }
@@ -799,12 +831,27 @@
     return out;
   }
   // ASCII frames are drawn text (anti-aliased), so map pixels onto a small palette.
+  // With a transparent background, index 0 is the see-through slot and faint (<25% alpha) pixels map to it.
   function asciiPalette() {
+    var clear = s.ascii.clear;
     if (s.ascii.tint) {                                    // photo colours: uniform 3-3-2 (256 colours)
       var p = [];
       for (var i = 0; i < 256; i++) p.push("#" + [((i >> 5) & 7) * 255 / 7, ((i >> 2) & 7) * 255 / 7, (i & 3) * 255 / 3]
         .map(function (v) { return Math.round(v).toString(16).padStart(2, "0"); }).join(""));
-      return { list: p, map: function (r, g, b) { return (r >> 5) << 5 | (g >> 5) << 2 | (b >> 6); } };
+      return { list: p, transparent: clear ? 0 : null, map: function (r, g, b, a) {
+        if (clear && a < 64) return 0;      // keep thin anti-aliased strokes
+        var v = (r >> 5) << 5 | (g >> 5) << 2 | (b >> 6);
+        return clear && v === 0 ? 1 : v;                   // slot 0 is taken by transparency
+      } };
+    }
+    if (clear) {                                           // text colours only; edges snap to the nearest
+      var inkRgb = s.ascii.inks.map(function (h) { var v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; });
+      return { list: ["#000000"].concat(s.ascii.inks), transparent: 0, map: function (r, g, b, a) {
+        if (a < 64) return 0;               // keep thin anti-aliased strokes
+        var best = 0, bd = 1e9;
+        for (var i = 0; i < inkRgb.length; i++) { var dr = r - inkRgb[i][0], dg = g - inkRgb[i][1], db = b - inkRgb[i][2], d = dr * dr + dg * dg + db * db; if (d < bd) { bd = d; best = i; } }
+        return best + 1;
+      } };
     }
     var rgb = function (h) { var v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
     var bg = rgb(s.ascii.paper), list = [s.ascii.paper], cols = [bg];
@@ -816,7 +863,7 @@
       }
     });
     var cache = new Map();
-    return { list: list, map: function (r, g, b) {
+    return { list: list, transparent: null, map: function (r, g, b) {
       var key = (r << 16) | (g << 8) | b, hit = cache.get(key);
       if (hit !== undefined) return hit;
       var best = 0, bd = 1e9;
@@ -827,7 +874,7 @@
   $("exportGif").addEventListener("click", function () {
     if (!anim) return;
     var btn = this, k = +$("pngScale").value, frames = [], n = anim.frames.length, i = 0, W = 0, H = 0, palette;
-    var ascii = s.mode === "ascii", apal = ascii ? asciiPalette() : null;
+    var ascii = s.mode === "ascii", apal = ascii ? asciiPalette() : null, usesClear = false;
     if (!ascii) palette = pal().slice();
     btn.disabled = true;
     function step() {
@@ -836,22 +883,25 @@
         var f = anim.frames[i];
         if (ascii) {
           var res = computeAscii(f.canvas, false), c = document.createElement("canvas");
-          Ascii.paint(c, res.lines, { fs: 6 * k, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: res.colors });
+          Ascii.paint(c, res.lines, { fs: 9 * k, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: res.colors, clear: s.ascii.clear });
           W = c.width; H = c.height;
           var d = c.getContext("2d").getImageData(0, 0, W, H).data, idx = new Uint8Array(W * H);
-          for (var p = 0, q = 0; p < idx.length; p++, q += 4) idx[p] = apal.map(d[q], d[q + 1], d[q + 2]);
+          for (var p = 0, q = 0; p < idx.length; p++, q += 4) idx[p] = apal.map(d[q], d[q + 1], d[q + 2], d[q + 3]);
           frames.push({ idx: idx, delay: f.delay });
         } else {
           var r = computeDither(f.canvas, false);
           W = r.w * k; H = r.h * k;
-          frames.push({ idx: nearestUp(r.idx, r.w, r.h, k), delay: f.delay });
+          var up = nearestUp(r.idx, r.w, r.h, k);
+          for (var j = 0; j < up.length; j++) if (up[j] === DitherCore.CLEAR) { up[j] = palette.length; usesClear = true; }
+          frames.push({ idx: up, delay: f.delay });
         }
         i++; setTimeout(step, 0);                          // yield so the page stays responsive
         return;
       }
       btn.textContent = "Writing\u2026";
       setTimeout(function () {
-        var bytes = Gif.encode(frames, W, H, ascii ? apal.list : palette);
+        var opts = ascii ? { transparent: apal.transparent } : { transparent: usesClear ? palette.length : null };
+        var bytes = Gif.encode(frames, W, H, ascii ? apal.list : (usesClear ? palette.concat("#000000") : palette), opts);
         download(new Blob([bytes], { type: "image/gif" }), fileName + (ascii ? "-ascii" : "-dither") + (k > 1 ? "-" + k + "x" : "") + ".gif");
         btn.textContent = "GIF"; btn.disabled = false;
       }, 0);
@@ -863,7 +913,7 @@
     if (s.mode === "ascii") {
       if (!asciiOut) return;
       var c2 = document.createElement("canvas");
-      Ascii.paint(c2, asciiOut.lines, { fs: 12 * +$("pngScale").value, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors });
+      Ascii.paint(c2, asciiOut.lines, { fs: 12 * +$("pngScale").value, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors, clear: s.ascii.clear });
       c2.toBlob(function (b) { download(b, fileName + "-ascii-" + $("pngScale").value + "x.png"); }, "image/png");
       return;
     }
@@ -906,15 +956,22 @@
   // One ASCII frame (lines + optional per-character colours) from any source.
   function computeAscii(src, live) {
     var a = s.ascii, braille = a.set === "braille";
-    var rows = Math.max(1, Math.round(a.cols * src.naturalHeight / src.naturalWidth * aspect));
-    var smp, key = [a.cols, rows, braille].join("x");
-    if (live) { if (key !== asciiKey) { asciiSampled = DitherCore.sample(src, braille ? a.cols * 2 : a.cols, braille ? rows * 4 : rows); asciiKey = key; } smp = asciiSampled; }
-    else smp = DitherCore.sample(src, braille ? a.cols * 2 : a.cols, braille ? rows * 4 : rows);
-    var L = DitherCore.adjust(smp, s), dense = Ascii.brightIsDense(a.inks, a.paper);
-    var lines = braille ? Ascii.toBraille(L, smp.w, smp.h, s.algo, dense) : Ascii.toLines(L, smp.w, smp.h, ramp(), s.algo, dense);
-    var cols = lines[0] ? lines[0].length : 0, colors = null;
-    if (a.tint) colors = Ascii.cellColors(smp, cols, lines.length, dense);
-    else if (a.inks.length > 1) colors = Ascii.bandColors(Ascii.cellLum(L, smp.w, smp.h, cols, lines.length), cols, lines.length, a.inks, s.algo);
+    // Sampling can't go wider than the image, so size rows from the columns actually used
+    // (otherwise small images come out stretched).
+    var iw = src.naturalWidth, ih = src.naturalHeight;
+    var cols = Math.max(8, Math.min(a.cols, braille ? Math.floor(iw / 2) : iw));
+    var maxRows = braille ? Math.floor(ih / 4) : ih, rows = Math.round(cols * ih / iw * aspect);
+    if (rows > maxRows) { rows = maxRows; cols = Math.max(8, Math.round(rows / (ih / iw * aspect))); }   // height-limited
+    rows = Math.max(1, rows);
+    var smp, key = [cols, rows, braille].join("x");
+    if (live) { if (key !== asciiKey) { asciiSampled = DitherCore.sample(src, braille ? cols * 2 : cols, braille ? rows * 4 : rows); asciiKey = key; } smp = asciiSampled; }
+    else smp = DitherCore.sample(src, braille ? cols * 2 : cols, braille ? rows * 4 : rows);
+    var L = DitherCore.adjust(toneSource(smp), s), dense = Ascii.brightIsDense(a.inks, a.paper);
+    var mask = s.alpha.keep && smp.hasAlpha ? DitherCore.alphaMask(smp.A, smp.w, smp.h, s.alpha.edge) : null;
+    var lines = braille ? Ascii.toBraille(L, smp.w, smp.h, s.algo, dense, mask) : Ascii.toLines(L, smp.w, smp.h, ramp(), s.algo, dense, mask);
+    var nc = lines[0] ? lines[0].length : 0, colors = null;
+    if (a.tint) colors = Ascii.cellColors(smp, nc, lines.length, dense);
+    else if (a.inks.length > 1) colors = Ascii.bandColors(Ascii.cellLum(L, smp.w, smp.h, nc, lines.length), nc, lines.length, a.inks, s.algo);
     return { lines: lines, colors: colors };
   }
   function renderAscii() {
@@ -924,7 +981,7 @@
     // draw at roughly the on-screen resolution so the text stays crisp
     var r = stage.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     var fs = Math.max(4, Math.min(48, Math.round((r.width - 48) * dpr / (cols * aspect))));
-    Ascii.paint(out, asciiOut.lines, { fs: fs, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors });
+    Ascii.paint(out, asciiOut.lines, { fs: fs, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors, clear: s.ascii.clear });
     fit();
     $("info").textContent = cols + " \u00d7 " + asciiOut.lines.length + " characters" + frameInfo();
   }
@@ -960,6 +1017,20 @@
     });
     $("asciiAdd").disabled = n >= 3;
   }
+  function syncAlpha() {
+    $("alphaGroup").hidden = !srcHasAlpha;
+    $("alphaKeep").checked = s.alpha.keep;
+    var r = document.querySelector('input[name=alphaEdge][value="' + s.alpha.edge + '"]'); if (r) r.checked = true;
+    document.querySelectorAll("input[name=alphaEdge]").forEach(function (i) { i.disabled = !s.alpha.keep || !!pre; });
+    $("asciiClear").checked = s.ascii.clear;
+    $("asciiPaper").classList.toggle("off", s.ascii.clear);
+  }
+  $("alphaKeep").addEventListener("change", function () { s.alpha.keep = this.checked; syncAlpha(); save(); queue(); });
+  document.querySelectorAll("input[name=alphaEdge]").forEach(function (r) {
+    r.addEventListener("change", function () { s.alpha.edge = r.value; save(); queue(); });
+  });
+  $("asciiClear").addEventListener("change", function () { s.ascii.clear = this.checked; syncAlpha(); save(); queue(); });
+
   function syncMode() {
     var ascii = s.mode === "ascii";
     var r = document.querySelector('input[name=mode][value="' + s.mode + '"]'); if (r) r.checked = true;

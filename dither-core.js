@@ -37,12 +37,16 @@
     var ox = out.getContext("2d", { willReadFrequently: true });
     ox.imageSmoothingQuality = "high"; ox.drawImage(src, 0, 0, cols, rows);
     var d = ox.getImageData(0, 0, cols, rows).data, L = new Float32Array(cols * rows), rgb = new Uint8ClampedArray(cols * rows * 3);
+    var A = new Float32Array(cols * rows), Lraw = new Float32Array(cols * rows), hasAlpha = false;
     for (var i = 0; i < L.length; i++) {
-      var a = d[i * 4 + 3] / 255;                     // transparent pixels read as paper
+      var a = d[i * 4 + 3] / 255;                     // transparent pixels read as paper for tone...
+      A[i] = a; if (a < 0.98) hasAlpha = true;        // ...and are tracked separately for transparency
+      // true colour of edge pixels (not lightened); fully clear pixels read as white so they add no error
+      Lraw[i] = a > 0.02 ? (0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255 : 1;
       L[i] = (0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255 * a + (1 - a);
       rgb[i * 3] = d[i * 4]; rgb[i * 3 + 1] = d[i * 4 + 1]; rgb[i * 3 + 2] = d[i * 4 + 2];
     }
-    return { w: cols, h: rows, L: L, rgb: rgb };
+    return { w: cols, h: rows, L: L, Lraw: Lraw, rgb: rgb, A: A, hasAlpha: hasAlpha };
   }
 
   // Tone adjustments, in this order: brightness, contrast, gamma, sharpen.
@@ -109,6 +113,23 @@
     return idx;
   }
 
+  // Transparency. Palette index 255 means "see-through" everywhere in the pipeline.
+  var CLEAR = 255;
+  // Opacity mask from per-cell alpha: "hard" cuts at 50%, "dither" dissolves soft edges with Bayer 4x4.
+  function alphaMask(A, w, h, edge) {
+    var m = new Uint8Array(w * h), b = BAYER[4];
+    for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+      var a = A[y * w + x];
+      m[y * w + x] = edge === "hard" ? (a >= 0.5 ? 1 : 0) : (a > (b[y & 3][x & 3] + 0.5) / 16 ? 1 : 0);
+    }
+    return m;
+  }
+  function applyMask(idx, mask) {
+    var out = Uint8Array.from(idx);
+    for (var i = 0; i < out.length; i++) if (!mask[i]) out[i] = CLEAR;
+    return out;
+  }
+
   function hexToRgb(hex) {
     var v = parseInt(hex.slice(1), 16);
     return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
@@ -120,7 +141,9 @@
     var ctx = canvas.getContext("2d"), img = ctx.createImageData(w, h), d = img.data;
     var pal = palette.map(hexToRgb);
     for (var i = 0; i < idx.length; i++) {
-      var c = pal[idx[i]], o = i * 4;
+      var o = i * 4;
+      if (idx[i] === CLEAR) { d[o + 3] = 0; continue; }
+      var c = pal[idx[i]];
       d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
     }
     ctx.putImageData(img, 0, 0);
@@ -129,19 +152,20 @@
   // Vector export: background rect in the most common colour, then one path per other
   // colour made of merged horizontal runs. Crisp at any size, reasonably small.
   function toSVG(idx, w, h, palette) {
-    var counts = palette.map(function () { return 0; });
-    for (var i = 0; i < idx.length; i++) counts[idx[i]]++;
-    var bg = counts.indexOf(Math.max.apply(null, counts));
+    var counts = palette.map(function () { return 0; }), clear = 0;
+    for (var i = 0; i < idx.length; i++) { if (idx[i] === CLEAR) clear++; else counts[idx[i]]++; }
+    // With transparency there's no background rect: every colour is drawn and gaps stay see-through.
+    var bg = clear ? -1 : counts.indexOf(Math.max.apply(null, counts));
     var paths = palette.map(function () { return []; });
     for (var y = 0; y < h; y++) {
       var x = 0;
       while (x < w) {
         var c = idx[y * w + x], s0 = x;
         while (x < w && idx[y * w + x] === c) x++;
-        if (c !== bg) paths[c].push("M" + s0 + " " + y + "h" + (x - s0) + "v1h-" + (x - s0) + "z");
+        if (c !== bg && c !== CLEAR) paths[c].push("M" + s0 + " " + y + "h" + (x - s0) + "v1h-" + (x - s0) + "z");
       }
     }
-    var body = '<rect width="' + w + '" height="' + h + '" fill="' + palette[bg] + '"/>';
+    var body = bg < 0 ? "" : '<rect width="' + w + '" height="' + h + '" fill="' + palette[bg] + '"/>';
     palette.forEach(function (col, k) {
       if (k !== bg && paths[k].length) body += '<path fill="' + col + '" d="' + paths[k].join("") + '"/>';
     });
@@ -162,7 +186,7 @@
       if (t <= 0) continue;
       var row = m[y & 7];
       for (var x = 0; x < w; x++) {
-        if (t >= 1 || t > (row[x & 7] + 0.5) / 64) out[y * w + x] = f.color;
+        if (out[y * w + x] !== CLEAR && (t >= 1 || t > (row[x & 7] + 0.5) / 64)) out[y * w + x] = f.color;
       }
     }
     return out;
@@ -176,20 +200,22 @@
     var c = document.createElement("canvas"); c.width = w; c.height = h;
     var cx = c.getContext("2d", { willReadFrequently: true });
     cx.imageSmoothingEnabled = false; cx.drawImage(img, 0, 0, w, h);
-    var d = cx.getImageData(0, 0, w, h).data, counts = new Map();
+    var d = cx.getImageData(0, 0, w, h).data, counts = new Map(), clearPx = 0;
     for (var i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 128) { clearPx++; continue; }
       var k = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
       counts.set(k, (counts.get(k) || 0) + 1);
       if (counts.size > 64) return null;                  // a photo, not flat dithered art
     }
     var top = Array.from(counts.entries()).sort(function (p, q) { return q[1] - p[1]; }).slice(0, 4);
     var covered = top.reduce(function (s, e) { return s + e[1]; }, 0);
-    if (top.length < 2 || covered < 0.995 * w * h) return null;
+    if (top.length < (clearPx ? 1 : 2) || covered < 0.995 * (w * h - clearPx)) return null;
     var lum = function (k) { return 0.2126 * (k >> 16) + 0.7152 * ((k >> 8) & 255) + 0.0722 * (k & 255); };
     var keys = top.map(function (e) { return e[0]; }).sort(function (p, q) { return lum(p) - lum(q); });   // darkest first
     var rgbs = keys.map(function (k) { return [k >> 16, (k >> 8) & 255, k & 255]; });
     var idx = new Uint8Array(w * h);
     for (var j = 0, p = 0; j < d.length; j += 4, p++) {
+      if (d[j + 3] < 128) { idx[p] = CLEAR; continue; }
       var best = 0, bd = 1e9;                              // stray pixels snap to the nearest colour
       for (var q = 0; q < rgbs.length; q++) {
         var dr = d[j] - rgbs[q][0], dg = d[j + 1] - rgbs[q][1], db = d[j + 2] - rgbs[q][2], dd = dr * dr + dg * dg + db * db;
@@ -197,8 +223,9 @@
       }
       idx[p] = best;
     }
-    return { w: w, h: h, idx: idx, palette: keys.map(function (k) { return "#" + k.toString(16).padStart(6, "0"); }) };
+    return { w: w, h: h, idx: idx, hasAlpha: clearPx > 0, palette: keys.map(function (k) { return "#" + k.toString(16).padStart(6, "0"); }) };
   }
 
-  window.DitherCore = { sample: sample, adjust: adjust, dither: dither, paint: paint, toSVG: toSVG, fade: fade, readPredithered: readPredithered };
+  window.DitherCore = { sample: sample, adjust: adjust, dither: dither, paint: paint, toSVG: toSVG, fade: fade, readPredithered: readPredithered,
+                         CLEAR: CLEAR, alphaMask: alphaMask, applyMask: applyMask };
 })();

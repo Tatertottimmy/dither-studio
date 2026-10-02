@@ -139,7 +139,9 @@
   }
 
   // frames: [{ idx: Uint8Array (w*h palette indices), delay: ms }], palette: ["#rrggbb", ...] (<= 256)
-  function encode(frames, w, h, palette) {
+  // opts.transparent: palette index to treat as see-through (frames then clear between each other).
+  function encode(frames, w, h, palette, opts) {
+    var trans = opts && opts.transparent != null ? opts.transparent : -1;
     var n = 1; while ((1 << n) < Math.max(2, palette.length)) n++;
     var out = [], push = function () { for (var i = 0; i < arguments.length; i++) out.push(arguments[i]); };
     "GIF89a".split("").forEach(function (c) { out.push(c.charCodeAt(0)); });
@@ -152,7 +154,8 @@
     push(3, 1, 0, 0, 0);                                      // loop forever
     frames.forEach(function (f) {
       var cs = Math.max(2, Math.round(f.delay / 10));
-      push(0x21, 0xF9, 4, 0x04, cs & 255, cs >> 8, 0, 0);       // disposal 1: keep, no transparency
+      if (trans < 0) push(0x21, 0xF9, 4, 0x04, cs & 255, cs >> 8, 0, 0);          // disposal 1: keep
+      else push(0x21, 0xF9, 4, 0x09, cs & 255, cs >> 8, trans, 0);              // disposal 2 (clear) + transparent index
       push(0x2C, 0, 0, 0, 0, w & 255, w >> 8, h & 255, h >> 8, 0);
       var minCode = Math.max(2, n);
       out.push(minCode); lzwEncode(minCode, f.idx, out);

@@ -40,11 +40,13 @@
   function sortByLum(list) { return list.slice().sort(function (a, b) { return hexLum(a) - hexLum(b); }); }
 
   // L: luminance grid (w x h), one value per character cell.
-  function toLines(L, w, h, ramp, algo, brightDense) {
+  // mask (optional): 0 = see-through cell, drawn as a blank.
+  function toLines(L, w, h, ramp, algo, brightDense, mask) {
     var n = ramp.length, idx = DitherCore.dither(L, w, h, algo, n), lines = [];
     for (var y = 0; y < h; y++) {
       var row = "";
       for (var x = 0; x < w; x++) {
+        if (mask && !mask[y * w + x]) { row += " "; continue; }
         var k = idx[y * w + x];                       // 0 = darkest tone ... n-1 = lightest
         row += ramp[brightDense ? k : n - 1 - k];
       }
@@ -56,14 +58,15 @@
   // Braille: each character is a 2x4 block of dots (U+2800 + bit mask), so L is sampled at
   // 2x the columns and 4x the rows and dithered to on/off dots.
   var DOT = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]];   // [row][col]
-  function toBraille(L, w, h, algo, brightDense) {
+  function toBraille(L, w, h, algo, brightDense, mask) {
     var bits = DitherCore.dither(L, w, h, algo, 2), cols = Math.floor(w / 2), rows = Math.floor(h / 4), lines = [];
     for (var cy = 0; cy < rows; cy++) {
       var row = "";
       for (var cx = 0; cx < cols; cx++) {
         var mask = 0;
         for (var dy = 0; dy < 4; dy++) for (var dx = 0; dx < 2; dx++) {
-          var on = bits[(cy * 4 + dy) * w + cx * 2 + dx] === (brightDense ? 1 : 0);
+          var at = (cy * 4 + dy) * w + cx * 2 + dx;
+          var on = bits[at] === (brightDense ? 1 : 0) && (!mask || mask[at]);
           if (on) mask |= DOT[dy][dx];
         }
         row += String.fromCharCode(0x2800 + mask);
@@ -129,7 +132,8 @@
     ctx.font = fs + "px " + FONT;
     var cw = ctx.measureText("M").width, cols = lines[0] ? lines[0].length : 0;
     canvas.width = Math.max(1, Math.ceil(cols * cw)); canvas.height = Math.max(1, lines.length * fs);
-    ctx.fillStyle = o.paper; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (o.clear) ctx.clearRect(0, 0, canvas.width, canvas.height);   // transparent background
+    else { ctx.fillStyle = o.paper; ctx.fillRect(0, 0, canvas.width, canvas.height); }
     ctx.font = fs + "px " + FONT; ctx.textBaseline = "top";
     for (var y = 0; y < lines.length; y++) {
       if (!o.colors) {
@@ -180,7 +184,7 @@
       }
     }
     return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + " " + H + '" width="' + W + '" height="' + H + '">' +
-      '<rect width="100%" height="100%" fill="' + o.paper + '"/>' +
+      (o.clear ? "" : '<rect width="100%" height="100%" fill="' + o.paper + '"/>') +
       '<g font-family="' + FONT.replace(/"/g, "'") + '" font-size="' + fs + '" xml:space="preserve"' + (o.colors ? "" : ' fill="' + o.ink + '"') + ">" +
       body + "</g></svg>";
   }
