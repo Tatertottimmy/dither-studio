@@ -99,6 +99,22 @@
   }
   .cp.sampling { visibility: hidden; }
   .blob.off { opacity: .3; }
+
+  /* Colour mapping: band bar with draggable boundaries */
+  .bands-wrap { margin-top: 14px; }
+  .bands { position: relative; height: 30px; border-radius: 999px; overflow: visible; touch-action: none; box-shadow: 0 0 0 1px rgba(255,255,255,.16); }
+  .bands .seg { position: absolute; top: 0; bottom: 0; }
+  .bands .seg:first-child { border-radius: 999px 0 0 999px; }
+  .bands .seg:last-of-type { border-radius: 0 999px 999px 0; }
+  .bands .handle {
+    position: absolute; top: -4px; bottom: -4px; width: 14px; margin-left: -7px; cursor: ew-resize;
+    border-radius: 999px; background: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 2px 6px rgba(0,0,0,.5);
+  }
+  .bands .handle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .bands-ramp { height: 6px; margin-top: 8px; border-radius: 999px; background: linear-gradient(90deg, #000, #fff); opacity: .55; }
+  .bands-foot { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--mono); font-size: .7rem; color: var(--muted); }
+  #pickColors { margin-top: 14px; width: 100%; justify-content: center; }
+  .blob.dragging { z-index: 5; position: relative; cursor: grabbing; transition: none; box-shadow: 0 8px 20px rgba(0,0,0,.5); }
   .playbtn {
     position: absolute; right: 18px; bottom: 12px; z-index: 3;
     display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
@@ -401,6 +417,23 @@
         <span class="switch"><input type="checkbox" id="asciiTint"><span class="track" aria-hidden="true"></span></span></label>
     </div>
 
+    <div class="group" id="mapGroup">
+      <h3 id="mapLabel">Apply colours by</h3>
+      <div class="patterns" role="radiogroup" aria-labelledby="mapLabel">
+        <label><input type="radio" name="mapMode" value="tone"><span>Brightness</span></label>
+        <label><input type="radio" name="mapMode" value="match"><span>Nearest colour</span></label>
+        <label><input type="radio" name="mapMode" value="hue"><span>Hue</span></label>
+      </div>
+      <div class="bands-wrap" id="bandsWrap">
+        <div class="bands" id="bands" role="group" aria-label="Colour bands: drag the handles to resize"></div>
+        <div class="bands-ramp" aria-hidden="true"></div>
+        <div class="bands-foot"><span>shadows</span><button class="link" id="bandsReset" type="button">Even out</button><span>highlights</span></div>
+      </div>
+      <div class="slider" id="hueRow" hidden style="margin-top:14px"><label for="hueShift">Hue offset</label><output id="hueShiftOut" for="hueShift"></output><input id="hueShift" type="range" min="0" max="359" step="1"></div>
+      <p class="note" id="mapNote" style="margin-top:12px"></p>
+      <button class="btn" id="pickColors" type="button" disabled>Pick colours from photo</button>
+    </div>
+
     <div class="group" id="alphaGroup" hidden>
       <div class="group-head">
         <h3 id="alphaLabel">Transparency</h3>
@@ -474,9 +507,9 @@
   </aside>
 </main>
 
-<script src="dither-core.js?v=202610021513"></script>
+<script src="dither-core.js?v=202610021619"></script>
 <script src="gif.js?v=202610021510"></script>
-<script src="ascii.js?v=202610021510"></script>
+<script src="ascii.js?v=202610021619"></script>
 <script src="picker.js?v=202610012008"></script>
 <script>
 (function () {
@@ -486,6 +519,8 @@
                    fade: { on: false, edge: "bottom", a: 0.62, b: 0.96, color: 0 },
                    mode: "dither",
                    alpha: { keep: true, edge: "dither" },
+                   map: { mode: "tone", hue: 0 },
+                   bands: { dither: null, ascii: null },
                    ascii: { cols: 120, set: "classic", custom: " .oO@", inks: ["#e9ece8"], paper: "#111214", tint: false, clear: false } };
   var KEY = "dither-settings";
   var s = Object.assign({}, DEFAULTS);
@@ -498,6 +533,8 @@
   if (!Array.isArray(s.colors) || s.colors.length < 2) s.colors = DEFAULTS.colors.slice();
   s.fade = Object.assign({}, DEFAULTS.fade, s.fade || {});
   s.alpha = Object.assign({}, DEFAULTS.alpha, s.alpha || {});
+  s.map = Object.assign({}, DEFAULTS.map, s.map || {});
+  s.bands = Object.assign({}, DEFAULTS.bands, s.bands || {});
   var srcHasAlpha = false;   // does the loaded image have see-through areas?
   var savedAscii = saved.ascii || {};
   s.ascii = Object.assign({}, DEFAULTS.ascii, savedAscii);
@@ -526,7 +563,7 @@
       var smp;
       if (live) { if (!sampled || sampledCols !== s.cols) { sampled = DitherCore.sample(src, s.cols); sampledCols = s.cols; } smp = sampled; }
       else smp = DitherCore.sample(src, s.cols);
-      base = DitherCore.dither(DitherCore.adjust(toneSource(smp), s), smp.w, smp.h, s.algo, s.colors.length);
+      base = mapToIndices(smp, s.colors);
       w = smp.w; h = smp.h;
     }
     if (pre && live) {
@@ -537,6 +574,21 @@
     var idx = s.fade.on ? DitherCore.fade(base, w, h, { edge: s.fade.edge, a: s.fade.a, b: s.fade.b, color: Math.min(s.fade.color, P.length - 1) }) : base;
     return { idx: idx, w: w, h: h };
   }
+  // ---- colour mapping (shared by both modes) ----
+  // Saved band boundaries for n colours, or even ones if the colour count changed.
+  function stopsFor(n, key) {
+    var st = s.bands[key];
+    return st && st.length === n - 1 ? st : DitherCore.defaultStops(n);
+  }
+  // One sampled grid -> palette indices, using the chosen mapping.
+  function mapToIndices(smp, palette) {
+    var n = palette.length, mode = s.map.mode;
+    if (mode === "match") return DitherCore.ditherMatch(DitherCore.adjustRGB(smp, s), smp.w, smp.h, palette, s.algo);
+    var L = mode === "hue" ? DitherCore.hueValue(DitherCore.adjustRGB(smp, s), smp.w * smp.h, s.map.hue)
+                           : DitherCore.toneRemap(DitherCore.adjust(toneSource(smp), s), stopsFor(n, "dither"), n);
+    return DitherCore.dither(L, smp.w, smp.h, s.algo, n);
+  }
+
   // Keeping transparency: dither edge pixels by their real colour (the mask handles the fade).
   // Not keeping it: see-through areas read as the light paper, as before.
   function toneSource(smp) { return s.alpha.keep && smp.hasAlpha ? Object.assign({}, smp, { L: smp.Lraw }) : smp; }
@@ -553,7 +605,7 @@
     fit();
     $("info").textContent = dims.w + " \u00d7 " + dims.h + " dots" + (pre ? ", using the image's own pixels" : "") + frameInfo();
   }
-  function queue() { markTheme(); if (!queued) { queued = true; requestAnimationFrame(render); } }
+  function queue() { markTheme(); if (typeof refreshBands === "function") refreshBands(); if (!queued) { queued = true; requestAnimationFrame(render); } }
 
   // Fit the preview to the stage by the photo's own aspect ratio, so its on-screen size
   // stays locked while the pixel density changes (only the dots get finer or coarser).
@@ -592,6 +644,7 @@
     syncAscii();
     syncMode();
     syncAlpha();
+    syncMap();
     markTheme();
   }
 
@@ -602,6 +655,45 @@
     return o;
   }
   function role(i, n) { return i === 0 ? "darkest" : i === n - 1 ? "lightest" : "midtone"; }
+
+  // Drag a colour blob left/right to move it to another slot (a plain click still opens the
+  // picker). Keyboard: Alt + Left/Right moves the focused colour.
+  function reorderable(btn, i, getList, rerender) {
+    var startX = 0, pid = null, dragging = false, justDragged = false;
+    function moveTo(j) {
+      var L = getList(); if (j === i || j < 0 || j >= L.length) return false;
+      L.splice(j, 0, L.splice(i, 1)[0]); rerender(); return true;
+    }
+    btn.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0) return;
+      startX = e.clientX; pid = e.pointerId; dragging = false; btn.setPointerCapture(pid);
+    });
+    btn.addEventListener("pointermove", function (e) {
+      if (e.pointerId !== pid || !btn.hasPointerCapture(pid)) return;
+      var dx = e.clientX - startX;
+      if (!dragging && Math.abs(dx) > 6) { dragging = true; btn.classList.add("dragging"); }
+      if (dragging) btn.style.transform = "translateX(" + dx + "px) scale(1.08)";
+    });
+    btn.addEventListener("pointerup", function (e) {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      if (!dragging) return;
+      dragging = false; justDragged = true;
+      btn.classList.remove("dragging"); btn.style.transform = "";
+      var sws = btn.closest(".colors, .inks").querySelectorAll(".swatch"), best = i, bd = 1e9;
+      sws.forEach(function (sw, k) { var r = sw.getBoundingClientRect(), d = Math.abs(r.left + r.width / 2 - e.clientX); if (d < bd) { bd = d; best = k; } });
+      moveTo(best);
+    });
+    btn.addEventListener("click", function (e) {           // swallow the click that ends a drag
+      if (justDragged) { justDragged = false; e.stopImmediatePropagation(); e.preventDefault(); }
+    });
+    btn.addEventListener("keydown", function (e) {
+      if (!e.altKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+      e.preventDefault();
+      var j = i + (e.key === "ArrowLeft" ? -1 : 1), box = btn.closest(".colors, .inks");
+      if (moveTo(j)) { var nb = box.querySelectorAll(".blob")[j]; if (nb) nb.focus(); }
+    });
+  }
   function renderColors() {
     var box = $("colors"), P = pal(), n = P.length;
     box.style.setProperty("--n", n);
@@ -612,7 +704,8 @@
       var b = document.createElement("button");
       b.className = "blob"; b.type = "button"; b.style.setProperty("--c", hex);
       b.setAttribute("aria-haspopup", "dialog"); b.setAttribute("aria-expanded", "false");
-      b.setAttribute("aria-label", "Colour " + (i + 1) + " of " + n + ", " + role(i, n) + ", " + hex);
+      b.setAttribute("aria-label", "Colour " + (i + 1) + " of " + n + ", " + role(i, n) + ", " + hex + ". Drag or press Alt and an arrow key to move it.");
+      reorderable(b, i, pal, function () { renderColors(); save(); queue(); });
       b.addEventListener("click", function () {
         ColorPicker.open(b, P[i], function (h) {
           P[i] = h; b.style.setProperty("--c", h); sw.querySelector("span").textContent = h; renderFadeInto();
@@ -632,6 +725,7 @@
       box.append(sw);
     });
     $("addColor").disabled = n >= 4 || !!pre;
+    if (typeof syncMap === "function" && $("mapGroup")) syncMap();
     $("reverse").disabled = !!pre;
     renderFadeInto();
   }
@@ -971,7 +1065,16 @@
     var lines = braille ? Ascii.toBraille(L, smp.w, smp.h, s.algo, dense, mask) : Ascii.toLines(L, smp.w, smp.h, ramp(), s.algo, dense, mask);
     var nc = lines[0] ? lines[0].length : 0, colors = null;
     if (a.tint) colors = Ascii.cellColors(smp, nc, lines.length, dense);
-    else if (a.inks.length > 1) colors = Ascii.bandColors(Ascii.cellLum(L, smp.w, smp.h, nc, lines.length), nc, lines.length, a.inks, s.algo);
+    else if (a.inks.length > 1) {                          // which text colour each character gets
+      var k = a.inks.length, rows = lines.length, ci;
+      if (s.map.mode === "tone") ci = DitherCore.dither(DitherCore.toneRemap(Ascii.cellLum(L, smp.w, smp.h, nc, rows), stopsFor(k, "ascii"), k), nc, rows, s.algo, k);
+      else {
+        var F = Ascii.cellRGB(DitherCore.adjustRGB(smp, s), smp.w, smp.h, nc, rows);
+        ci = s.map.mode === "match" ? DitherCore.ditherMatch(F, nc, rows, a.inks, s.algo)
+                                    : DitherCore.dither(DitherCore.hueValue(F, nc * rows, s.map.hue), nc, rows, s.algo, k);
+      }
+      colors = Ascii.colorsFromIdx(ci, a.inks);
+    }
     return { lines: lines, colors: colors };
   }
   function renderAscii() {
@@ -1001,7 +1104,8 @@
       var b = document.createElement("button"); b.className = "blob"; b.type = "button"; b.style.setProperty("--c", hex);
       b.setAttribute("aria-haspopup", "dialog"); b.setAttribute("aria-expanded", "false");
       var role = n === 1 ? "text" : i === 0 ? "shadows" : i === n - 1 ? "highlights" : "midtones";
-      b.setAttribute("aria-label", "Text colour " + (i + 1) + " of " + n + ", " + role + ", " + hex);
+      b.setAttribute("aria-label", "Text colour " + (i + 1) + " of " + n + ", " + role + ", " + hex + ". Drag or press Alt and an arrow key to move it.");
+      reorderable(b, i, function () { return a.inks; }, function () { syncAscii(); save(); queue(); });
       b.addEventListener("click", function () {
         ColorPicker.open(b, a.inks[i], function (h) { a.inks[i] = h; syncAscii(); save(); queue(); }, "Text colour " + (i + 1) + " (" + role + ")");
       });
@@ -1016,7 +1120,85 @@
       box.append(sw);
     });
     $("asciiAdd").disabled = n >= 3;
+    if (typeof syncMap === "function" && $("mapGroup")) syncMap();
   }
+  // ---- "Apply colours by" panel ----
+  var MAP_NOTES = {
+    tone: "Each colour takes a band of brightness. Drag the handles to resize the bands.",
+    match: "Each pixel gets whichever of your colours is closest to its real colour, dithered in between.",
+    hue: "Colourful areas are sorted by hue, grey areas by brightness. Turn the offset to change which hues land on which colour."
+  };
+  function bandColours() { return s.mode === "ascii" ? s.ascii.inks : pal(); }
+  function syncMap() {
+    var ascii = s.mode === "ascii", P = bandColours(), n = P.length, key = ascii ? "ascii" : "dither";
+    $("mapGroup").hidden = !!pre && !ascii;                 // fixed pixels: nothing to map
+    var r = document.querySelector('input[name=mapMode][value="' + s.map.mode + '"]'); if (r) r.checked = true;
+    $("hueRow").hidden = s.map.mode !== "hue";
+    $("hueShift").value = s.map.hue; $("hueShiftOut").textContent = s.map.hue + "\u00b0";
+    var usable = !ascii || (n > 1 && !s.ascii.tint);
+    $("mapNote").textContent = usable ? MAP_NOTES[s.map.mode]
+      : (s.ascii.tint ? "Turn off the photo tint to use these." : "Add a second text colour to use these (+ next to Colours).");
+    $("bandsWrap").hidden = s.map.mode !== "tone" || n < 2 || !usable;
+    $("pickColors").disabled = !img || (!!pre && !ascii);
+    if ($("bandsWrap").hidden) return;
+    var st = stopsFor(n, key), box = $("bands"), edges = [0].concat(st, [1]);
+    box.innerHTML = "";
+    P.forEach(function (hex, i) {
+      var seg = document.createElement("div"); seg.className = "seg";
+      seg.style.left = edges[i] * 100 + "%"; seg.style.width = (edges[i + 1] - edges[i]) * 100 + "%"; seg.style.background = hex;
+      box.append(seg);
+    });
+    st.forEach(function (v, i) {
+      var h = document.createElement("div"); h.className = "handle"; h.tabIndex = 0;
+      h.setAttribute("role", "slider"); h.setAttribute("aria-valuemin", "0"); h.setAttribute("aria-valuemax", "100");
+      h.setAttribute("aria-valuenow", Math.round(v * 100));
+      h.setAttribute("aria-label", "Where colour " + (i + 2) + " takes over from colour " + (i + 1));
+      h.style.left = v * 100 + "%";
+      function set(x) {
+        var cur = stopsFor(n, key).slice(), lo = (i ? cur[i - 1] : 0) + 0.02, hi = (i < cur.length - 1 ? cur[i + 1] : 1) - 0.02;
+        cur[i] = Math.min(hi, Math.max(lo, x)); s.bands[key] = cur; queue();   // queue() repositions in place
+      }
+      h.addEventListener("pointerdown", function (e) { h.setPointerCapture(e.pointerId); e.preventDefault(); });
+      h.addEventListener("pointermove", function (e) {
+        if (!h.hasPointerCapture(e.pointerId)) return;
+        var b = box.getBoundingClientRect(); set((e.clientX - b.left) / b.width);
+      });
+      h.addEventListener("pointerup", save);
+      h.addEventListener("keydown", function (e) {
+        var stp = e.shiftKey ? 0.05 : 0.01;
+        var now = stopsFor(n, key)[i];
+        if (e.key === "ArrowLeft" || e.key === "ArrowDown") set(now - stp); else if (e.key === "ArrowRight" || e.key === "ArrowUp") set(now + stp); else return;
+        e.preventDefault(); save();
+      });
+      box.append(h);
+    });
+  }
+  // Update the band bar in place (colours + positions); rebuild only if the colour count changed.
+  function refreshBands() {
+    var box = $("bands"); if (!box || $("bandsWrap").hidden) return;
+    var P = bandColours(), n = P.length, segs = box.querySelectorAll(".seg"), hs = box.querySelectorAll(".handle");
+    if (segs.length !== n) return syncMap();
+    var edges = [0].concat(stopsFor(n, s.mode === "ascii" ? "ascii" : "dither"), [1]);
+    segs.forEach(function (seg, i) { seg.style.left = edges[i] * 100 + "%"; seg.style.width = (edges[i + 1] - edges[i]) * 100 + "%"; seg.style.background = P[i]; });
+    hs.forEach(function (h, i) { h.style.left = edges[i + 1] * 100 + "%"; h.setAttribute("aria-valuenow", Math.round(edges[i + 1] * 100)); });
+  }
+  document.querySelectorAll("input[name=mapMode]").forEach(function (r) {
+    r.addEventListener("change", function () { s.map.mode = r.value; syncMap(); save(); queue(); });
+  });
+  $("hueShift").addEventListener("input", function () { s.map.hue = +this.value; $("hueShiftOut").textContent = s.map.hue + "\u00b0"; save(); queue(); });
+  $("bandsReset").addEventListener("click", function () { s.bands[s.mode === "ascii" ? "ascii" : "dither"] = null; syncMap(); save(); queue(); });
+  // Pick the colours that best represent the photo (keeps your colour count), and switch to
+  // nearest-colour mapping, which is what makes them look like the photo.
+  $("pickColors").addEventListener("click", function () {
+    if (!img) return;
+    var ascii = s.mode === "ascii", n = ascii ? s.ascii.inks.length + 1 : s.colors.length;
+    var cols = DitherCore.pickColors(DitherCore.sample(img, 200), n); if (!cols) return;
+    if (ascii) { s.ascii.paper = cols[0]; s.ascii.inks = cols.slice(1); s.ascii.tint = false; }
+    else s.colors = cols;
+    s.map.mode = "match";
+    syncControls(); save(); queue();
+  });
+
   function syncAlpha() {
     $("alphaGroup").hidden = !srcHasAlpha;
     $("alphaKeep").checked = s.alpha.keep;

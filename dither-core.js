@@ -226,6 +226,141 @@
     return { w: w, h: h, idx: idx, hasAlpha: clearPx > 0, palette: keys.map(function (k) { return "#" + k.toString(16).padStart(6, "0"); }) };
   }
 
+  // ================= Colour mapping =================
+
+  // Brightness bands with custom boundaries. stops[i] (0..1) is where colour i+1 takes over from
+  // colour i. Remaps L so each boundary lands on the dither's natural midpoint between levels,
+  // which means equal stops ((i+0.5)/(n-1)) leave the image unchanged.
+  function defaultStops(n) { var s = []; for (var i = 1; i < n; i++) s.push((i - 0.5) / (n - 1)); return s; }
+  function toneRemap(L, stops, n) {
+    if (!stops || stops.length !== n - 1) return L;
+    var xs = [0].concat(stops, [1]), ys = [0];
+    for (var i = 1; i < n; i++) ys.push((i - 0.5) / (n - 1));
+    ys.push(1);
+    var out = new Float32Array(L.length);
+    for (var p = 0; p < L.length; p++) {
+      var v = Math.min(1, Math.max(0, L[p])), k = 1;
+      while (k < xs.length - 1 && v > xs[k]) k++;
+      var x0 = xs[k - 1], x1 = xs[k], t = x1 > x0 ? (v - x0) / (x1 - x0) : 0;
+      out[p] = ys[k - 1] + (ys[k] - ys[k - 1]) * t;
+    }
+    return out;
+  }
+
+  // Same tone controls as adjust(), applied to R, G and B (0..1 floats, 3 per cell).
+  function adjustRGB(smp, o) {
+    var n = smp.w * smp.h, F = new Float32Array(n * 3);
+    var c = o.contrast >= 0 ? 1 + o.contrast / 50 : 1 + o.contrast / 100;
+    for (var i = 0; i < n * 3; i++) {
+      var v = smp.rgb[i] / 255 + o.brightness / 100;
+      v = Math.min(1, Math.max(0, (v - 0.5) * c + 0.5));
+      F[i] = Math.pow(v, 1 / o.gamma);
+    }
+    if (o.sharpen > 0) {
+      var w = smp.w, h = smp.h, G = new Float32Array(F.length);
+      for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) for (var ch = 0; ch < 3; ch++) {
+        var sum = 0, m = 0;
+        for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+          var yy = y + dy, xx = x + dx;
+          if (yy >= 0 && yy < h && xx >= 0 && xx < w) { sum += F[(yy * w + xx) * 3 + ch]; m++; }
+        }
+        var q = (y * w + x) * 3 + ch;
+        G[q] = Math.min(1, Math.max(0, F[q] + o.sharpen * (F[q] - sum / m)));
+      }
+      F = G;
+    }
+    return F;
+  }
+
+  function rgbList(palette) { return palette.map(function (h) { var v = parseInt(h.slice(1), 16); return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255]; }); }
+  // Weighted RGB distance (eyes are most sensitive to green, least to blue).
+  function nearest(P, r, g, b) {
+    var best = 0, bd = 1e9;
+    for (var i = 0; i < P.length; i++) {
+      var dr = r - P[i][0], dg = g - P[i][1], db = b - P[i][2], d = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+
+  // Nearest-colour dithering: each cell gets the palette colour closest to its real colour.
+  function ditherMatch(F, w, h, palette, algo) {
+    var P = rgbList(palette), idx = new Uint8Array(w * h);
+    if (algo === "threshold" || algo.indexOf("bayer") === 0) {
+      var size = algo === "threshold" ? 0 : +algo.slice(5), m = size ? BAYER[size] : null, spread = 0.45;
+      for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+        var p = y * w + x, o = m ? ((m[y % size][x % size] + 0.5) / (size * size) - 0.5) * spread : 0;
+        idx[p] = nearest(P, F[p * 3] + o, F[p * 3 + 1] + o, F[p * 3 + 2] + o);
+      }
+      return idx;
+    }
+    var K = algo === "atkinson"
+      ? { div: 8, k: [[1, 0, 1], [2, 0, 1], [-1, 1, 1], [0, 1, 1], [1, 1, 1], [0, 2, 1]] }
+      : { div: 16, k: [[1, 0, 7], [-1, 1, 3], [0, 1, 5], [1, 1, 1]] };
+    var e = Float32Array.from(F);
+    for (var y2 = 0; y2 < h; y2++) {
+      var rev = y2 & 1;
+      for (var i2 = 0; i2 < w; i2++) {
+        var x2 = rev ? w - 1 - i2 : i2, q = (y2 * w + x2) * 3;
+        var r = e[q], g = e[q + 1], b = e[q + 2], k = nearest(P, r, g, b);
+        idx[y2 * w + x2] = k;
+        var er = (r - P[k][0]) / K.div, eg = (g - P[k][1]) / K.div, eb = (b - P[k][2]) / K.div;
+        for (var j = 0; j < K.k.length; j++) {
+          var tx = x2 + (rev ? -K.k[j][0] : K.k[j][0]), ty = y2 + K.k[j][1];
+          if (tx >= 0 && tx < w && ty < h) { var t = (ty * w + tx) * 3, wgt = K.k[j][2]; e[t] += er * wgt; e[t + 1] += eg * wgt; e[t + 2] += eb * wgt; }
+        }
+      }
+    }
+    return idx;
+  }
+
+  // Hue mapping value: saturated cells by hue (rotated by `shift` degrees), grey cells by brightness,
+  // blended by saturation so neutral areas don't turn to noise. Feed the result to dither().
+  function hueValue(F, n, shift) {
+    var V = new Float32Array(n), off = (shift || 0) / 360;
+    for (var i = 0; i < n; i++) {
+      var r = F[i * 3], g = F[i * 3 + 1], b = F[i * 3 + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, hh = 0;
+      if (d > 1e-6) hh = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      var hue = ((hh / 6 + off) % 1 + 1) % 1, sat = mx > 0 ? d / mx : 0, lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      var wgt = Math.min(1, sat * 1.6);
+      V[i] = hue * wgt + lum * (1 - wgt);
+    }
+    return V;
+  }
+
+  // Pick n representative colours from a sample (k-means++ on up to ~12k pixels), darkest first.
+  function pickColors(smp, n) {
+    var total = smp.w * smp.h, step = Math.max(1, Math.floor(total / 12000)), pts = [];
+    for (var i = 0; i < total; i += step) {
+      if (smp.A && smp.A[i] < 0.5) continue;                  // ignore see-through pixels
+      pts.push([smp.rgb[i * 3], smp.rgb[i * 3 + 1], smp.rgb[i * 3 + 2]]);
+    }
+    if (!pts.length) return null;
+    var d2 = function (a, b) { var x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2]; return x * x + y * y + z * z; };
+    var seed = 12345, rnd = function () { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    var C = [pts[Math.floor(rnd() * pts.length)].slice()];
+    while (C.length < n) {                                     // k-means++ seeding: spread the starts out
+      var D = pts.map(function (p) { return Math.min.apply(null, C.map(function (c) { return d2(p, c); })); });
+      var sum = D.reduce(function (a, b) { return a + b; }, 0), r = rnd() * sum, j = 0;
+      while (j < D.length - 1 && (r -= D[j]) > 0) j++;
+      C.push(pts[j].slice());
+    }
+    for (var it = 0; it < 12; it++) {
+      var acc = C.map(function () { return [0, 0, 0, 0]; });
+      pts.forEach(function (p) {
+        var bi = 0, bd = 1e12;
+        for (var c = 0; c < C.length; c++) { var dd = d2(p, C[c]); if (dd < bd) { bd = dd; bi = c; } }
+        acc[bi][0] += p[0]; acc[bi][1] += p[1]; acc[bi][2] += p[2]; acc[bi][3]++;
+      });
+      C = C.map(function (c, k) { return acc[k][3] ? [acc[k][0] / acc[k][3], acc[k][1] / acc[k][3], acc[k][2] / acc[k][3]] : c; });
+    }
+    var hex = C.map(function (c) { return "#" + c.map(function (v) { return Math.round(v).toString(16).padStart(2, "0"); }).join(""); });
+    var lum = function (h) { var v = parseInt(h.slice(1), 16); return 0.2126 * (v >> 16) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255); };
+    return hex.sort(function (a, b) { return lum(a) - lum(b); });
+  }
+
   window.DitherCore = { sample: sample, adjust: adjust, dither: dither, paint: paint, toSVG: toSVG, fade: fade, readPredithered: readPredithered,
-                         CLEAR: CLEAR, alphaMask: alphaMask, applyMask: applyMask };
+                         CLEAR: CLEAR, alphaMask: alphaMask, applyMask: applyMask,
+                         defaultStops: defaultStops, toneRemap: toneRemap, adjustRGB: adjustRGB, ditherMatch: ditherMatch,
+                         hueValue: hueValue, pickColors: pickColors };
 })();

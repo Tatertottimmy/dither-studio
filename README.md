@@ -13,6 +13,12 @@ Everything runs locally in your browser. Photos are never uploaded anywhere.
 - **Dither patterns:** Floyd-Steinberg, Atkinson, Bayer 2x2 / 4x4 / 8x8 (ordered), or plain threshold.
 - **Tone controls:** pixel density (dots across), brightness, contrast, gamma and sharpen, with a live preview. Scroll over any slider to nudge it (Shift for bigger steps).
 - **2 to 4 colours,** ordered darkest to lightest. Each colour takes an equal band of the image's tones, with dithered blends in between.
+- **Apply colours by:**
+  - **Brightness:** each colour takes a band of tones, shown as a bar with draggable handles so you decide where each colour starts.
+  - **Nearest colour:** each pixel gets whichever of your colours is closest to its real colour, dithered in between (the classic limited-palette look).
+  - **Hue:** colourful areas are sorted by hue, greys by brightness, with a hue offset to choose which hues land on which colour.
+  - **Pick colours from photo:** chooses the 2 to 4 colours that best represent the image.
+  - **Drag to reorder** colours between slots (or Alt + arrow keys).
 - **Colour themes:** one-click palettes that go together (Lake, Popcorn, Game Boy, Amber Terminal, Phosphor, Blueprint, Risograph, Sunset, Sepia, Ocean, Paper & Ink). They work in both modes; in ASCII mode the darkest colour becomes the background.
 - **Colour picker:** saturation/brightness field with hue slider, hex input, RGB sliders, presets, and an eyedropper that picks straight from your original photo (works in every browser) with a magnifier loupe.
 - **Fade:** dissolve the top or bottom edge into one of your colours with an ordered dither, using two draggable bars on the preview. Handy for letting pixel art blend into a page background.

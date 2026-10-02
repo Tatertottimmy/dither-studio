@@ -99,6 +99,26 @@
     return out;
   }
 
+  // Average adjusted RGB per character cell (Braille cells cover 2x4 samples).
+  function cellRGB(F, w, h, cols, rows) {
+    if (w === cols && h === rows) return F;
+    var bx = w / cols, by = h / rows, out = new Float32Array(cols * rows * 3);
+    for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+      var r = 0, g = 0, b = 0, n = 0;
+      for (var yy = Math.floor(y * by); yy < Math.floor((y + 1) * by); yy++)
+        for (var xx = Math.floor(x * bx); xx < Math.floor((x + 1) * bx); xx++) { var o = (yy * w + xx) * 3; r += F[o]; g += F[o + 1]; b += F[o + 2]; n++; }
+      var p = (y * cols + x) * 3; out[p] = n ? r / n : 0; out[p + 1] = n ? g / n : 0; out[p + 2] = n ? b / n : 0;
+    }
+    return out;
+  }
+  // Palette indices -> per-character rgb bytes.
+  function colorsFromIdx(idx, inks) {
+    var rgb = inks.map(function (h) { var v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; });
+    var out = new Uint8ClampedArray(idx.length * 3);
+    for (var i = 0; i < idx.length; i++) { var c = rgb[idx[i]]; out[i * 3] = c[0]; out[i * 3 + 1] = c[1]; out[i * 3 + 2] = c[2]; }
+    return out;
+  }
+
   // Per-character colours for "tint with photo colours" (averages blocks for Braille).
   // Keeps each cell's hue but sets its brightness for the background: lifted to full
   // brightness on dark backgrounds, deepened on light ones, so tinted text always reads.
@@ -189,6 +209,6 @@
       body + "</g></svg>";
   }
 
-  window.Ascii = { SETS: SETS, THEMES: THEMES, sortByLum: sortByLum, cellLum: cellLum, bandColors: bandColors, brightIsDense: brightIsDense, toLines: toLines, toBraille: toBraille,
+  window.Ascii = { SETS: SETS, THEMES: THEMES, sortByLum: sortByLum, cellLum: cellLum, cellRGB: cellRGB, colorsFromIdx: colorsFromIdx, bandColors: bandColors, brightIsDense: brightIsDense, toLines: toLines, toBraille: toBraille,
                    cellColors: cellColors, cellAspect: cellAspect, paint: paint, toSVG: toSVG, FONT: FONT };
 })();
