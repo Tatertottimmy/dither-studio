@@ -96,6 +96,12 @@
     background: var(--bg); color: var(--text);
   }
   .cp.sampling { visibility: hidden; }
+  .playbtn {
+    position: absolute; right: 18px; bottom: 12px; z-index: 3;
+    display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: rgba(17,18,20,.85); color: var(--text); cursor: pointer; font-size: .85rem;
+  }
+  .playbtn:hover { background: var(--surface-2); }
 
   /* ---------- Fade: two draggable bars over the preview ---------- */
   .fadebars { position: absolute; z-index: 4; pointer-events: none; }
@@ -323,6 +329,7 @@
   <h1>Dither</h1>
   <button class="btn" id="copyText" type="button" hidden disabled>Copy text</button>
   <button class="btn" id="exportTxt" type="button" hidden disabled>TXT</button>
+  <button class="btn" id="exportGif" type="button" hidden>GIF</button>
   <button class="btn" id="exportPng" type="button" disabled>PNG</button>
   <button class="btn primary" id="exportSvg" type="button" disabled>Export SVG</button>
 </header>
@@ -341,7 +348,8 @@
     <canvas id="srcView" aria-label="Original photo: click to pick a colour"></canvas>
     <p class="sample-hint" id="sampleHint" hidden>Click the photo to pick a colour. Esc to cancel.</p>
     <div class="loupe" id="loupe" hidden><canvas width="132" height="132"></canvas><span></span></div>
-    <p class="info" id="info" aria-live="polite"></p>
+    <p class="info" id="info" aria-live="off"></p>
+    <button class="playbtn" id="playBtn" type="button" hidden aria-label="Pause animation"><span aria-hidden="true">&#10074;&#10074;</span> Pause</button>
     <div class="fadebars" id="fadeBars" hidden>
       <div class="fadeband" id="fadeBand"></div>
       <div class="fadebar" id="barA" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100"><span>Fade starts</span></div>
@@ -450,6 +458,7 @@
 </main>
 
 <script src="dither-core.js?v=202610021344"></script>
+<script src="gif.js?v=202610021458"></script>
 <script src="ascii.js?v=202610021415"></script>
 <script src="picker.js?v=202610012008"></script>
 <script>
@@ -479,6 +488,7 @@
   var asciiOut = null, asciiSampled = null, asciiKey = "", aspect = 0.6;   // aspect = char width / line height
 
   var source = null;   // full-res pixels of the original, for the eyedropper
+  var anim = null;     // an animated GIF: { frames: [{ canvas, delay }], i, playing, timer }
   var pre = null;      // an already-dithered image: { w, h, idx, palette } used pixel-for-pixel
   function pal() { return pre ? pre.palette : s.colors; }
   var img = null, fileName = "image", sampled = null, sampledCols = 0, bits = null, dims = null, queued = false;
@@ -487,27 +497,34 @@
   function save() { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
 
   // ---- render pipeline (sampling is cached; only redone when density/photo changes) ----
+  // One dithered frame from any source (the still image, or a GIF frame). `live` uses the
+  // preview's cached sampling; exports pass false so every frame is processed fresh.
+  function computeDither(src, live) {
+    var base, w, h;
+    if (pre && live) { base = pre.idx; w = pre.w; h = pre.h; }
+    else {
+      var smp;
+      if (live) { if (!sampled || sampledCols !== s.cols) { sampled = DitherCore.sample(src, s.cols); sampledCols = s.cols; } smp = sampled; }
+      else smp = DitherCore.sample(src, s.cols);
+      base = DitherCore.dither(DitherCore.adjust(smp, s), smp.w, smp.h, s.algo, s.colors.length);
+      w = smp.w; h = smp.h;
+    }
+    var P = pal();
+    var idx = s.fade.on ? DitherCore.fade(base, w, h, { edge: s.fade.edge, a: s.fade.a, b: s.fade.b, color: Math.min(s.fade.color, P.length - 1) }) : base;
+    return { idx: idx, w: w, h: h };
+  }
+  function frameInfo() { return anim ? ", frame " + (anim.i + 1) + " of " + anim.frames.length : ""; }
+
   function render() {
     queued = false;
     if (!img) return;
     if (s.mode === "ascii") return renderAscii();
     out.classList.remove("text");
-    var base;
-    if (pre) {
-      base = pre.idx; dims = { w: pre.w, h: pre.h };
-    } else {
-      if (!sampled || sampledCols !== s.cols) { sampled = DitherCore.sample(img, s.cols); sampledCols = s.cols; }
-      var L = DitherCore.adjust(sampled, s);
-      base = DitherCore.dither(L, sampled.w, sampled.h, s.algo, s.colors.length);
-      dims = { w: sampled.w, h: sampled.h };
-    }
-    var P = pal();
-    bits = s.fade.on
-      ? DitherCore.fade(base, dims.w, dims.h, { edge: s.fade.edge, a: s.fade.a, b: s.fade.b, color: Math.min(s.fade.color, P.length - 1) })
-      : base;
-    DitherCore.paint(out, bits, dims.w, dims.h, P);
+    var r = computeDither(img, true);
+    bits = r.idx; dims = { w: r.w, h: r.h };
+    DitherCore.paint(out, bits, dims.w, dims.h, pal());
     fit();
-    $("info").textContent = dims.w + " \u00d7 " + dims.h + " dots" + (pre ? ", using the image's own pixels" : "");
+    $("info").textContent = dims.w + " \u00d7 " + dims.h + " dots" + (pre ? ", using the image's own pixels" : "") + frameInfo();
   }
   function queue() { markTheme(); if (!queued) { queued = true; requestAnimationFrame(render); } }
 
@@ -674,11 +691,59 @@
   });
 
   // ---- loading a photo: drop, paste, or file picker ----
+  // Animated GIF: decode every frame ourselves (works in Firefox too), then play.
+  function loadGif(file) {
+    file.arrayBuffer().then(function (buf) {
+      var g;
+      try { g = Gif.decode(buf, { maxFrames: 300, maxPixels: 90e6 }); } catch (e) { g = null; }
+      if (!g || g.frames.length < 2) { loadStill(file); return; }      // a single-frame GIF is just a picture
+      stopAnim();
+      g.frames.forEach(function (f) { f.canvas.naturalWidth = g.width; f.canvas.naturalHeight = g.height; });
+      anim = { frames: g.frames, i: 0, playing: !matchMedia("(prefers-reduced-motion: reduce)").matches, timer: 0 };
+      fileName = (file.name || "animation").replace(/\.[^.]+$/, "") || "animation";
+      img = g.frames[0].canvas; sampled = null; source = null; asciiKey = ""; pre = null;
+      renderColors(); syncMode(); setPlayButton();
+      stage.classList.add("has-image");
+      $("exportSvg").disabled = $("exportPng").disabled = $("copyText").disabled = $("exportTxt").disabled = false;
+      $("exportGif").hidden = false; $("replace").hidden = false;
+      render();
+      if (g.truncated) $("info").textContent += " (long GIF: using the first " + g.frames.length + " frames)";
+      if (anim.playing) anim.timer = setTimeout(nextFrame, anim.frames[0].delay);
+    }, function () { $("info").textContent = "Couldn't read that GIF. Try another file."; });
+  }
+  function stopAnim() { if (anim) clearTimeout(anim.timer); anim = null; $("exportGif").hidden = true; $("playBtn").hidden = true; }
+  function showFrame(i) {
+    anim.i = (i + anim.frames.length) % anim.frames.length;
+    img = anim.frames[anim.i].canvas; sampled = null; source = null; asciiKey = "";
+    render();
+  }
+  function nextFrame() {
+    if (!anim || !anim.playing) return;
+    showFrame(anim.i + 1);
+    anim.timer = setTimeout(nextFrame, anim.frames[anim.i].delay);
+  }
+  function setPlayButton() {
+    var b = $("playBtn"); b.hidden = !anim; if (!anim) return;
+    b.innerHTML = anim.playing ? '<span aria-hidden="true">&#10074;&#10074;</span> Pause' : '<span aria-hidden="true">&#9654;</span> Play';
+    b.setAttribute("aria-label", anim.playing ? "Pause animation" : "Play animation");
+  }
+  $("playBtn").addEventListener("click", function () {
+    if (!anim) return;
+    anim.playing = !anim.playing; clearTimeout(anim.timer);
+    if (anim.playing) anim.timer = setTimeout(nextFrame, anim.frames[anim.i].delay);
+    setPlayButton();
+  });
+
   function load(file) {
+    if (file && file.type === "image/gif") return loadGif(file);
+    loadStill(file);
+  }
+  function loadStill(file) {
     if (!file || !/^image\//.test(file.type)) { $("info").textContent = "That file isn't an image. Try a JPG, PNG or WebP."; return; }
     fileName = (file.name || "image").replace(/\.[^.]+$/, "") || "image";
     var url = URL.createObjectURL(file), im = new Image();
     im.onload = function () {
+      stopAnim();
       img = im; sampled = null; source = null; asciiKey = "";
       pre = DitherCore.readPredithered(im);
       renderColors();
@@ -722,6 +787,78 @@
     if (!bits) return;
     download(new Blob([DitherCore.toSVG(bits, dims.w, dims.h, pal())], { type: "image/svg+xml" }), fileName + "-dither.svg");
   });
+  // Animated GIF export (both modes): every frame through the current settings, original timing.
+  function nearestUp(idx, w, h, k) {
+    if (k === 1) return idx;
+    var W = w * k, out = new Uint8Array(W * h * k);
+    for (var y = 0; y < h; y++) {
+      var row = new Uint8Array(W);
+      for (var x = 0; x < w; x++) row.fill(idx[y * w + x], x * k, x * k + k);
+      for (var r = 0; r < k; r++) out.set(row, (y * k + r) * W);
+    }
+    return out;
+  }
+  // ASCII frames are drawn text (anti-aliased), so map pixels onto a small palette.
+  function asciiPalette() {
+    if (s.ascii.tint) {                                    // photo colours: uniform 3-3-2 (256 colours)
+      var p = [];
+      for (var i = 0; i < 256; i++) p.push("#" + [((i >> 5) & 7) * 255 / 7, ((i >> 2) & 7) * 255 / 7, (i & 3) * 255 / 3]
+        .map(function (v) { return Math.round(v).toString(16).padStart(2, "0"); }).join(""));
+      return { list: p, map: function (r, g, b) { return (r >> 5) << 5 | (g >> 5) << 2 | (b >> 6); } };
+    }
+    var rgb = function (h) { var v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+    var bg = rgb(s.ascii.paper), list = [s.ascii.paper], cols = [bg];
+    s.ascii.inks.forEach(function (ink) {                  // background -> each text colour, 15 steps (anti-aliasing)
+      var c = rgb(ink);
+      for (var t = 1; t <= 15; t++) {
+        var m = bg.map(function (v, j) { return Math.round(v + (c[j] - v) * t / 15); });
+        cols.push(m); list.push("#" + m.map(function (v) { return v.toString(16).padStart(2, "0"); }).join(""));
+      }
+    });
+    var cache = new Map();
+    return { list: list, map: function (r, g, b) {
+      var key = (r << 16) | (g << 8) | b, hit = cache.get(key);
+      if (hit !== undefined) return hit;
+      var best = 0, bd = 1e9;
+      for (var i = 0; i < cols.length; i++) { var dr = r - cols[i][0], dg = g - cols[i][1], db = b - cols[i][2], d = dr * dr + dg * dg + db * db; if (d < bd) { bd = d; best = i; } }
+      cache.set(key, best); return best;
+    } };
+  }
+  $("exportGif").addEventListener("click", function () {
+    if (!anim) return;
+    var btn = this, k = +$("pngScale").value, frames = [], n = anim.frames.length, i = 0, W = 0, H = 0, palette;
+    var ascii = s.mode === "ascii", apal = ascii ? asciiPalette() : null;
+    if (!ascii) palette = pal().slice();
+    btn.disabled = true;
+    function step() {
+      if (i < n) {
+        btn.textContent = "Encoding " + (i + 1) + "/" + n + "\u2026";
+        var f = anim.frames[i];
+        if (ascii) {
+          var res = computeAscii(f.canvas, false), c = document.createElement("canvas");
+          Ascii.paint(c, res.lines, { fs: 6 * k, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: res.colors });
+          W = c.width; H = c.height;
+          var d = c.getContext("2d").getImageData(0, 0, W, H).data, idx = new Uint8Array(W * H);
+          for (var p = 0, q = 0; p < idx.length; p++, q += 4) idx[p] = apal.map(d[q], d[q + 1], d[q + 2]);
+          frames.push({ idx: idx, delay: f.delay });
+        } else {
+          var r = computeDither(f.canvas, false);
+          W = r.w * k; H = r.h * k;
+          frames.push({ idx: nearestUp(r.idx, r.w, r.h, k), delay: f.delay });
+        }
+        i++; setTimeout(step, 0);                          // yield so the page stays responsive
+        return;
+      }
+      btn.textContent = "Writing\u2026";
+      setTimeout(function () {
+        var bytes = Gif.encode(frames, W, H, ascii ? apal.list : palette);
+        download(new Blob([bytes], { type: "image/gif" }), fileName + (ascii ? "-ascii" : "-dither") + (k > 1 ? "-" + k + "x" : "") + ".gif");
+        btn.textContent = "GIF"; btn.disabled = false;
+      }, 0);
+    }
+    step();
+  });
+
   $("exportPng").addEventListener("click", function () {
     if (s.mode === "ascii") {
       if (!asciiOut) return;
@@ -766,27 +903,30 @@
     if (s.ascii.set === "custom") return s.ascii.custom.length >= 2 ? s.ascii.custom : " @";
     return Ascii.SETS[s.ascii.set] || Ascii.SETS.classic;
   }
+  // One ASCII frame (lines + optional per-character colours) from any source.
+  function computeAscii(src, live) {
+    var a = s.ascii, braille = a.set === "braille";
+    var rows = Math.max(1, Math.round(a.cols * src.naturalHeight / src.naturalWidth * aspect));
+    var smp, key = [a.cols, rows, braille].join("x");
+    if (live) { if (key !== asciiKey) { asciiSampled = DitherCore.sample(src, braille ? a.cols * 2 : a.cols, braille ? rows * 4 : rows); asciiKey = key; } smp = asciiSampled; }
+    else smp = DitherCore.sample(src, braille ? a.cols * 2 : a.cols, braille ? rows * 4 : rows);
+    var L = DitherCore.adjust(smp, s), dense = Ascii.brightIsDense(a.inks, a.paper);
+    var lines = braille ? Ascii.toBraille(L, smp.w, smp.h, s.algo, dense) : Ascii.toLines(L, smp.w, smp.h, ramp(), s.algo, dense);
+    var cols = lines[0] ? lines[0].length : 0, colors = null;
+    if (a.tint) colors = Ascii.cellColors(smp, cols, lines.length, dense);
+    else if (a.inks.length > 1) colors = Ascii.bandColors(Ascii.cellLum(L, smp.w, smp.h, cols, lines.length), cols, lines.length, a.inks, s.algo);
+    return { lines: lines, colors: colors };
+  }
   function renderAscii() {
     out.classList.add("text");
-    var a = s.ascii, braille = a.set === "braille";
-    var rows = Math.max(1, Math.round(a.cols * img.naturalHeight / img.naturalWidth * aspect));
-    var key = [a.cols, rows, braille].join("x");
-    if (key !== asciiKey) { asciiSampled = DitherCore.sample(img, braille ? a.cols * 2 : a.cols, braille ? rows * 4 : rows); asciiKey = key; }
-    var L = DitherCore.adjust(asciiSampled, s), dense = Ascii.brightIsDense(a.inks, a.paper);
-    var lines = braille ? Ascii.toBraille(L, asciiSampled.w, asciiSampled.h, s.algo, dense)
-                        : Ascii.toLines(L, asciiSampled.w, asciiSampled.h, ramp(), s.algo, dense);
-    var cols = lines[0] ? lines[0].length : 0;
-    var colors = null;
-    if (a.tint) colors = Ascii.cellColors(asciiSampled, cols, lines.length, dense);
-    else if (a.inks.length > 1)
-      colors = Ascii.bandColors(Ascii.cellLum(L, asciiSampled.w, asciiSampled.h, cols, lines.length), cols, lines.length, a.inks, s.algo);
-    asciiOut = { lines: lines, colors: colors };
+    asciiOut = computeAscii(img, true);
+    var cols = asciiOut.lines[0] ? asciiOut.lines[0].length : 0;
     // draw at roughly the on-screen resolution so the text stays crisp
     var r = stage.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     var fs = Math.max(4, Math.min(48, Math.round((r.width - 48) * dpr / (cols * aspect))));
-    Ascii.paint(out, lines, { fs: fs, ink: a.inks[0], paper: a.paper, colors: colors });
+    Ascii.paint(out, asciiOut.lines, { fs: fs, ink: s.ascii.inks[0], paper: s.ascii.paper, colors: asciiOut.colors });
     fit();
-    $("info").textContent = cols + " \u00d7 " + lines.length + " characters";
+    $("info").textContent = cols + " \u00d7 " + asciiOut.lines.length + " characters" + frameInfo();
   }
 
   function syncAscii() {

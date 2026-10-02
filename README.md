@@ -1,6 +1,6 @@
 # Dither Studio
 
-Turn a photo into a dithered image in 2 to 4 colours, or into ASCII art, right in the browser. Export as a crisp vector SVG, a pixel-perfect PNG, or plain text.
+Turn a photo or an animated GIF into a dithered image in 2 to 4 colours, or into ASCII art, right in the browser. Export as a crisp vector SVG, a pixel-perfect PNG, an animated GIF, or plain text.
 
 **Try it:** https://mikemadeit.io/dither/
 
@@ -8,7 +8,8 @@ Everything runs locally in your browser. Photos are never uploaded anywhere.
 
 ## Features
 
-- **Load a photo** by dragging it onto the page, pasting it, or choosing a file.
+- **Load a photo or an animated GIF** by dragging it onto the page, pasting it, or choosing a file.
+- **Animated GIFs** play in the preview while you adjust anything, with a play/pause button and frame counter, and export as an animated GIF in either mode (original frame timing, scale 1x to 8x). Frames are decoded and encoded by the app itself, so this works in every browser, including Firefox.
 - **Dither patterns:** Floyd-Steinberg, Atkinson, Bayer 2x2 / 4x4 / 8x8 (ordered), or plain threshold.
 - **Tone controls:** pixel density (dots across), brightness, contrast, gamma and sharpen, with a live preview. Scroll over any slider to nudge it (Shift for bigger steps).
 - **2 to 4 colours,** ordered darkest to lightest. Each colour takes an equal band of the image's tones, with dithered blends in between.
@@ -41,6 +42,7 @@ then open http://localhost:8000/. (Opening `index.html` directly from disk also 
 | `index.html` | The app: layout, styles, controls, preview, eyedropper, fade bars, export |
 | `dither-core.js` | The image pipeline: sampling, tone adjustments, dithering algorithms, fade, SVG export |
 | `ascii.js` | ASCII mode: character sets, Braille packing, drawing, text and SVG export |
+| `gif.js` | Animated GIF decoder (disposal, transparency, interlacing, local palettes) and encoder |
 | `picker.js` | The colour picker popover |
 
 ## License
