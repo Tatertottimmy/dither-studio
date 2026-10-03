@@ -192,8 +192,8 @@
     return out;
   }
 
-  // Is this image already a dithered piece (<= 4 flat colours)? Read it pixel-for-pixel at its
-  // own size; if 4 colours cover ~all of it, return those pixels as palette indices.
+  // Is this image already a dithered piece (a few flat colours)? Read it pixel-for-pixel at its
+  // own size; if up to 32 colours cover ~all of it, return those pixels as palette indices.
   function readPredithered(img) {
     var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
     if (!w || !h || w * h > 4000 * 4000) return null;
@@ -207,7 +207,7 @@
       counts.set(k, (counts.get(k) || 0) + 1);
       if (counts.size > 64) return null;                  // a photo, not flat dithered art
     }
-    var top = Array.from(counts.entries()).sort(function (p, q) { return q[1] - p[1]; }).slice(0, 4);
+    var top = Array.from(counts.entries()).sort(function (p, q) { return q[1] - p[1]; }).slice(0, 32);
     var covered = top.reduce(function (s, e) { return s + e[1]; }, 0);
     if (top.length < (clearPx ? 1 : 2) || covered < 0.995 * (w * h - clearPx)) return null;
     var lum = function (k) { return 0.2126 * (k >> 16) + 0.7152 * ((k >> 8) & 255) + 0.0722 * (k & 255); };

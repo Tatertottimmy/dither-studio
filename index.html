@@ -482,7 +482,7 @@
         <h3 id="colorsLabel">Colours <span>dark to light</span></h3>
         <div class="mini">
           <button class="icon-btn" id="reverse" type="button" aria-label="Reverse colour order" title="Reverse order">&#8646;</button>
-          <button class="icon-btn" id="addColor" type="button" aria-label="Add a colour" title="Add a colour (up to 4)">+</button>
+          <button class="icon-btn" id="addColor" type="button" aria-label="Add a colour" title="Add a colour">+</button>
         </div>
       </div>
       <div class="colors" id="colors" role="list" aria-labelledby="colorsLabel"></div>
@@ -493,7 +493,7 @@
         <h3 id="asciiColorsLabel">Colours <span>background, then text</span></h3>
         <div class="mini">
           <button class="icon-btn" id="asciiFlip" type="button" aria-label="Flip background and text colours" title="Flip light and dark">&#8646;</button>
-          <button class="icon-btn" id="asciiAdd" type="button" aria-label="Add a text colour" title="Add a text colour (up to 3)">+</button>
+          <button class="icon-btn" id="asciiAdd" type="button" aria-label="Add a text colour" title="Add a text colour">+</button>
         </div>
       </div>
       <div class="ascii-colors">
@@ -817,6 +817,18 @@
   }
 
   // ---- colours: 2-4 blobs, darkest tone first ----
+  // GIF frames hold at most 256 colours and one is kept for see-through, so that's the ceiling.
+  var MAX_COLORS = 255;
+  // A new colour goes into the biggest gap: halfway between the two neighbours that differ most.
+  function addBetween(list) {
+    var best = 0, bd = -1;
+    for (var i = 0; i < list.length - 1; i++) {
+      var x = parseInt(list[i].slice(1), 16), y = parseInt(list[i + 1].slice(1), 16), d = 0;
+      [16, 8, 0].forEach(function (sh) { var v = ((x >> sh) & 255) - ((y >> sh) & 255); d += v * v; });
+      if (d > bd) { bd = d; best = i; }
+    }
+    list.splice(best + 1, 0, mix(list[best], list[best + 1]));
+  }
   function mix(a, b) {
     var x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16), o = "#";
     [16, 8, 0].forEach(function (sh) { o += Math.round((((x >> sh) & 255) + ((y >> sh) & 255)) / 2).toString(16).padStart(2, "0"); });
@@ -827,20 +839,20 @@
   // Drag a colour blob left/right to move it to another slot (a plain click still opens the
   // picker). Keyboard: Alt + Left/Right moves the focused colour.
   function reorderable(btn, i, getList, rerender) {
-    var startX = 0, pid = null, dragging = false, justDragged = false;
+    var startX = 0, startY = 0, pid = null, dragging = false, justDragged = false;
     function moveTo(j) {
       var L = getList(); if (j === i || j < 0 || j >= L.length) return false;
       L.splice(j, 0, L.splice(i, 1)[0]); rerender(); return true;
     }
     btn.addEventListener("pointerdown", function (e) {
       if (e.button !== 0) return;
-      startX = e.clientX; pid = e.pointerId; dragging = false; btn.setPointerCapture(pid);
+      startX = e.clientX; startY = e.clientY; pid = e.pointerId; dragging = false; btn.setPointerCapture(pid);
     });
     btn.addEventListener("pointermove", function (e) {
       if (e.pointerId !== pid || !btn.hasPointerCapture(pid)) return;
-      var dx = e.clientX - startX;
-      if (!dragging && Math.abs(dx) > 6) { dragging = true; btn.classList.add("dragging"); }
-      if (dragging) btn.style.transform = "translateX(" + dx + "px) scale(1.08)";
+      var dx = e.clientX - startX, dy = e.clientY - startY;
+      if (!dragging && Math.hypot(dx, dy) > 6) { dragging = true; btn.classList.add("dragging"); }
+      if (dragging) btn.style.transform = "translate(" + dx + "px," + dy + "px) scale(1.08)";
     });
     btn.addEventListener("pointerup", function (e) {
       if (e.pointerId !== pid) return;
@@ -849,7 +861,7 @@
       dragging = false; justDragged = true;
       btn.classList.remove("dragging"); btn.style.transform = "";
       var sws = btn.closest(".colors, .inks").querySelectorAll(".swatch"), best = i, bd = 1e9;
-      sws.forEach(function (sw, k) { var r = sw.getBoundingClientRect(), d = Math.abs(r.left + r.width / 2 - e.clientX); if (d < bd) { bd = d; best = k; } });
+      sws.forEach(function (sw, k) { var r = sw.getBoundingClientRect(), d = Math.hypot(r.left + r.width / 2 - e.clientX, r.top + r.height / 2 - e.clientY); if (d < bd) { bd = d; best = k; } });
       moveTo(best);
     });
     btn.addEventListener("click", function (e) {           // swallow the click that ends a drag
@@ -864,7 +876,7 @@
   }
   function renderColors() {
     var box = $("colors"), P = pal(), n = P.length;
-    box.style.setProperty("--n", n);
+    box.style.setProperty("--n", Math.min(n, 4));      // rows of up to 4
     box.innerHTML = "";
     P.forEach(function (hex, i) {
       var sw = document.createElement("div");
@@ -892,15 +904,15 @@
       }
       box.append(sw);
     });
-    $("addColor").disabled = n >= 4 || !!pre;
+    $("addColor").disabled = n >= MAX_COLORS || !!pre;
     if (typeof syncMap === "function" && $("mapGroup")) syncMap();
     $("reverse").disabled = !!pre;
     renderFadeInto();
   }
   // A new colour goes in as a midtone, blended from the two lightest neighbours.
   $("addColor").addEventListener("click", function () {
-    var n = s.colors.length; if (n >= 4 || pre) return;
-    s.colors.splice(n - 1, 0, mix(s.colors[n - 2], s.colors[n - 1]));
+    if (s.colors.length >= MAX_COLORS || pre) return;
+    addBetween(s.colors);
     renderColors(); save(); queue();
   });
   $("reverse").addEventListener("click", function () { if (pre) return; s.colors.reverse(); renderColors(); save(); queue(); });
@@ -1119,10 +1131,11 @@
     }
     var rgb = function (h) { var v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
     var bg = rgb(s.ascii.paper), list = [s.ascii.paper], cols = [bg];
-    s.ascii.inks.forEach(function (ink) {                  // background -> each text colour, 15 steps (anti-aliasing)
+    var steps = Math.max(1, Math.min(15, Math.floor(255 / s.ascii.inks.length)));   // fit in 256 slots
+    s.ascii.inks.forEach(function (ink) {                  // background -> each text colour, in steps (anti-aliasing)
       var c = rgb(ink);
-      for (var t = 1; t <= 15; t++) {
-        var m = bg.map(function (v, j) { return Math.round(v + (c[j] - v) * t / 15); });
+      for (var t = 1; t <= steps; t++) {
+        var m = bg.map(function (v, j) { return Math.round(v + (c[j] - v) * t / steps); });
         cols.push(m); list.push("#" + m.map(function (v) { return v.toString(16).padStart(2, "0"); }).join(""));
       }
     });
@@ -1273,7 +1286,7 @@
     var pb = $("asciiPaper"); pb.style.setProperty("--c", a.paper);
     pb.setAttribute("aria-label", "Background colour, " + a.paper); $("asciiPaperHex").textContent = a.paper;
     var box = $("asciiInks"), n = a.inks.length;
-    box.style.setProperty("--n", n); box.innerHTML = "";
+    box.style.setProperty("--n", Math.min(n, 3)); box.innerHTML = "";   // rows of up to 3
     a.inks.forEach(function (hex, i) {
       var sw = document.createElement("div"); sw.className = "swatch"; sw.setAttribute("role", "listitem");
       var b = document.createElement("button"); b.className = "blob"; b.type = "button"; b.style.setProperty("--c", hex);
@@ -1294,7 +1307,7 @@
       }
       box.append(sw);
     });
-    $("asciiAdd").disabled = n >= 3;
+    $("asciiAdd").disabled = n >= MAX_COLORS - 1;
     if (typeof syncMap === "function" && $("mapGroup")) syncMap();
   }
   // ---- "Apply colours by" panel ----
@@ -1450,7 +1463,7 @@
     var cur = hueColors().join(), hit = "", ascii = s.mode === "ascii", hue = s.map.mode === "hue";
     var all = (ascii ? [s.ascii.paper].concat(s.ascii.inks) : s.colors).join();
     HUE_PRESETS.forEach(function (p) {
-      p.btn.hidden = !hue || (ascii && p.colors.length > 3);   // ASCII has up to 3 text colours
+      p.btn.hidden = !hue;
       var on = hue && p.fit.colors.join() === cur && p.fit.hue === s.map.hue;
       p.btn.setAttribute("aria-pressed", String(on)); if (on) hit = p.name;
     });
@@ -1526,8 +1539,9 @@
   });
   // New text colour: a blend of the background and the first text colour, then keep them in tone order.
   $("asciiAdd").addEventListener("click", function () {
-    var a = s.ascii; if (a.inks.length >= 3) return;
-    a.inks = Ascii.sortByLum(a.inks.concat(mix(a.paper, a.inks[0])));
+    var a = s.ascii; if (a.inks.length >= MAX_COLORS - 1) return;
+    if (a.inks.length === 1) a.inks = Ascii.sortByLum(a.inks.concat(mix(a.paper, a.inks[0])));
+    else addBetween(a.inks);
     a.tint = false; syncAscii(); save(); queue();
   });
   $("asciiPaper").addEventListener("click", function () {
