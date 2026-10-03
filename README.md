@@ -32,6 +32,10 @@ Everything runs locally in your browser. Photos are never uploaded anywhere. (Ba
   - **Edge lines:** outlines are drawn with `_ \ | /` along their real direction, the way hand-made ASCII art does, instead of only shading. Found at up to 4x4 samples per character, with fine texture smoothed out and lone strokes dropped; cut-out subjects get outlined along their see-through edge.
   - The dither patterns choose which character goes where, so shading stays smooth instead of banding.
   - A background colour plus any number of text colours: each text colour takes a band of tones (shadows, midtones, highlights), dithered between neighbours so it blends instead of banding. Or tint every character with the photo's own colour instead.
+  - **Copy for Discord, Twitch or Rust,** with a preview styled like each chat and a character count against its limit, plus a dark/light chat switch:
+    - **Discord:** wrapped in a ``` code block (fixed-width font), checked against 2,000 characters (4,000 with Nitro), with Fit to limit.
+    - **Twitch:** chat is one line, 500 characters, in a proportional font, so this is a Braille version of the art, rows joined by spaces and sized so the default-width chat wraps one row per line. Adjustable width and space after your name; faint dots in empty cells keep rows lined up; Fit to limit.
+    - **Rust (the game):** plain ASCII only, one chat message per row, with a button that copies the rows one at a time.
   - Export: copy to clipboard, `.txt`, SVG (real text, each line pinned to an exact width so the grid lines up in any monospace font) or PNG.
 - **Transparency:** see-through areas in PNG, GIF or WebP sources stay see-through, with dithered or hard edges, shown over a checkerboard. PNG, SVG and GIF exports keep it (GIF frames clear between each other, so animations don't ghost). ASCII mode can also use a transparent background, so the text floats over anything.
 - Settings are remembered between visits.

@@ -58,6 +58,43 @@
   .btn:disabled { opacity: .4; cursor: not-allowed; }
   .btn.small { padding: 6px 14px; font-size: .82rem; }
 
+  /* ---------- Copy for... ---------- */
+  dialog.share {
+    margin: auto; width: min(760px, calc(100% - 32px)); max-height: calc(100dvh - 32px); padding: 0;
+    border: 1px solid var(--line); background: #1c1d20; color: var(--text);
+    border-radius: 34px 26px 38px 30px / 28px 36px 30px 40px; box-shadow: 0 30px 80px rgba(0,0,0,.6);
+  }
+  dialog.share::backdrop { background: rgba(0,0,0,.6); }
+  .share-inner { display: grid; gap: 16px; padding: 24px; }
+  .share-top { display: flex; align-items: center; justify-content: space-between; }
+  .share-top h2 { font-size: 1.2rem; font-weight: 600; letter-spacing: -.01em; }
+  .share-opts { display: grid; gap: 12px; }
+  .share-opts .check { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); }
+  .share-preview { overflow: auto; max-height: 46dvh; border-radius: 14px; padding: 14px 16px; }
+  .share-preview .who { font-weight: 700; margin-right: 4px; }
+  /* Discord: dark/light message area, art in a monospace code block */
+  .share-preview.discord { background: #313338; color: #dbdee1; font: 15px/1.375 "gg sans", "Noto Sans", "Helvetica Neue", Arial, sans-serif; }
+  .share-preview.discord.light { background: #fff; color: #313338; }
+  .share-preview.discord pre { margin-top: 4px; padding: 7px; border-radius: 4px; background: #2b2d31; border: 1px solid #1e1f22;
+    font: 14px/1.125 Consolas, "Andale Mono WT", "Andale Mono", "Lucida Console", "DejaVu Sans Mono", monospace; white-space: pre; width: max-content; }
+  .share-preview.discord.light pre { background: #f2f3f5; border-color: #e3e5e8; color: #313338; }
+  /* Twitch: the default 340px chat column, proportional font, wraps at spaces */
+  .share-preview.twitch { background: #18181b; color: #efeff1; padding: 10px 0; }
+  .share-preview.twitch.light { background: #fff; color: #0e0e10; }
+  .share-preview.twitch .msg { width: 340px; padding: 5px 20px; font: 13px/20px Inter, Roobert, "Helvetica Neue", Helvetica, Arial, sans-serif; overflow-wrap: anywhere; }
+  .share-preview.twitch .who { color: #9147ff; }
+  /* Rust: one chat message per row */
+  .share-preview.rust { background: #1b1a17; color: #e6e1d6; font: 14px/1.3 "Roboto Condensed", "Arial Narrow", Arial, sans-serif; }
+  .share-preview.rust.light { background: #e9e4d8; color: #1b1a17; }
+  .share-preview.rust .msg { white-space: pre; }
+  .share-preview.rust .msg.next { background: rgba(245,142,0,.18); }
+  .share-preview.rust .who { color: #b6d26a; }
+  .share-preview.plain { background: var(--bg); }
+  .share-preview.plain pre { font: 12px/1.15 var(--mono); white-space: pre; }
+  .share-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .share-foot .count { margin-right: auto; font-family: var(--mono); font-size: .82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .share-foot .count.over { color: #ff7b72; }
+
   /* ---------- Layout ---------- */
   .studio {
     flex: 1; min-height: 0;
@@ -402,7 +439,7 @@
 <header class="bar">
   <a class="home" href="/">&larr; mikemadeit.io</a>
   <h1>Dither</h1>
-  <button class="btn" id="copyText" type="button" hidden disabled>Copy text</button>
+  <button class="btn" id="copyText" type="button" hidden disabled aria-haspopup="dialog">Copy text&hellip;</button>
   <button class="btn" id="exportTxt" type="button" hidden disabled>TXT</button>
   <button class="btn" id="exportGif" type="button" hidden>GIF</button>
   <button class="btn" id="exportPng" type="button" disabled>PNG</button>
@@ -610,6 +647,41 @@
   </aside>
 </main>
 
+<dialog class="share" id="shareDlg" aria-labelledby="shareHead">
+  <div class="share-inner">
+    <div class="share-top">
+      <h2 id="shareHead">Copy for&hellip;</h2>
+      <button class="link" id="shareClose" type="button">Close</button>
+    </div>
+    <div class="patterns" role="radiogroup" aria-label="Where it's going">
+      <label><input type="radio" name="shareTo" value="discord"><span>Discord</span></label>
+      <label><input type="radio" name="shareTo" value="twitch"><span>Twitch</span></label>
+      <label><input type="radio" name="shareTo" value="rust"><span>Rust</span></label>
+      <label><input type="radio" name="shareTo" value="plain"><span>Plain text</span></label>
+    </div>
+    <div class="share-opts">
+      <div class="patterns" role="radiogroup" aria-label="Chat theme">
+        <label><input type="radio" name="shareTheme" value="dark"><span>Dark chat</span></label>
+        <label><input type="radio" name="shareTheme" value="light"><span>Light chat</span></label>
+      </div>
+      <label class="check" id="optNitro"><input type="checkbox" id="shareNitro"> Nitro (4,000 limit)</label>
+      <div class="slider" id="optTwitchW"><label for="shareTwitchW">Width</label><output id="shareTwitchWOut" for="shareTwitchW"></output><input id="shareTwitchW" type="range" min="20" max="32" step="1"></div>
+      <div class="slider" id="optTwitchPad"><label for="shareTwitchPad">Space after your name</label><output id="shareTwitchPadOut" for="shareTwitchPad"></output><input id="shareTwitchPad" type="range" min="0" max="30" step="1"></div>
+      <label class="check" id="optTwitchDots"><input type="checkbox" id="shareTwitchDots"> Faint dot in empty cells (keeps rows lined up)</label>
+      <div class="slider" id="optRustLen"><label for="shareRustLen">Characters across</label><output id="shareRustLenOut" for="shareRustLen"></output><input id="shareRustLen" type="range" min="16" max="100" step="2"></div>
+      <label class="check" id="optRustDots"><input type="checkbox" id="shareRustDots"> Use . for blank space (chat trims spaces)</label>
+    </div>
+    <div class="share-preview" id="sharePreview" aria-label="Preview"></div>
+    <p class="note" id="shareNote"></p>
+    <div class="share-foot">
+      <span class="count" id="shareCount" aria-live="polite"></span>
+      <button class="btn" id="shareFit" type="button" hidden>Fit to limit</button>
+      <button class="btn" id="shareRestart" type="button" hidden>Start over</button>
+      <button class="btn primary" id="shareCopy" type="button">Copy</button>
+    </div>
+  </div>
+</dialog>
+
 <script src="dither-core.js?v=202610021619"></script>
 <script src="gif.js?v=202610021510"></script>
 <script src="ascii.js?v=202610021619"></script>
@@ -624,7 +696,8 @@
                    alpha: { keep: true, edge: "dither" },
                    map: { mode: "tone", hue: 0 },
                    bands: { dither: null, ascii: null },
-                   ascii: { cols: 120, set: "classic", custom: " .oO@", inks: ["#e9ece8"], paper: "#111214", tint: false, clear: false, edges: 0 } };
+                   ascii: { cols: 120, set: "classic", custom: " .oO@", inks: ["#e9ece8"], paper: "#111214", tint: false, clear: false, edges: 0 },
+                   share: { to: "discord", dark: true, nitro: false, twitchW: 30, twitchPad: 12, twitchDots: true, rustLen: 40, rustDots: true } };
   var KEY = "dither-settings";
   var s = Object.assign({}, DEFAULTS);
   var saved = {};
@@ -638,6 +711,7 @@
   s.alpha = Object.assign({}, DEFAULTS.alpha, s.alpha || {});
   s.map = Object.assign({}, DEFAULTS.map, s.map || {});
   s.bands = Object.assign({}, DEFAULTS.bands, s.bands || {});
+  s.share = Object.assign({}, DEFAULTS.share, s.share || {});
   var srcHasAlpha = false;   // does the loaded image have see-through areas?
   var savedAscii = saved.ascii || {};
   s.ascii = Object.assign({}, DEFAULTS.ascii, savedAscii);
@@ -1632,14 +1706,148 @@
   });
 
   function asciiText() { return asciiOut ? asciiOut.lines.join("\n") + "\n" : ""; }
-  $("copyText").addEventListener("click", function () {
-    var t = asciiText(), btn = this;
-    function done(ok) { btn.textContent = ok ? "Copied" : "Copy failed"; setTimeout(function () { btn.textContent = "Copy text"; }, 1500); }
+  function copyString(t, btn, label) {
+    function done(ok) { btn.textContent = ok ? "Copied" : "Copy failed"; setTimeout(function () { btn.textContent = label; }, 1400); }
     if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(function () { done(true); }, function () { done(false); });
     else {                                     // fallback for non-HTTPS (e.g. opening the file locally)
       var ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select();
       try { done(document.execCommand("copy")); } catch (e) { done(false); } ta.remove();
     }
+  }
+
+  // ---- Copy for Discord / Twitch / Rust ----
+  // Each place shows text differently, so each gets its own version of the art:
+  //  Discord: proportional font, but a ``` code block is monospace. 2,000 characters (4,000 with Nitro).
+  //  Twitch:  proportional font, one line, 500 characters. Only Braille characters share one width,
+  //           so the art is Braille, rows joined by spaces and as wide as the chat, so it wraps one
+  //           row per line (in the default-width chat).
+  //  Rust:    proportional font, short messages, plain ASCII only: one row per message.
+  var BLANK = "⠀", FAINT = "⠂";
+  var LIMITS = { discord: 2000, nitro: 4000, twitch: 500 };
+  // The art re-rendered with some settings swapped (charset, width, chat theme), current crop and tones.
+  function linesFor(over) {
+    var a = s.ascii, keep = { set: a.set, cols: a.cols, inks: a.inks, paper: a.paper, tint: a.tint, clear: a.clear };
+    try {
+      if (over.set) a.set = over.set;
+      if (over.cols) a.cols = over.cols;
+      a.inks = [over.dark ? "#ffffff" : "#000000"]; a.paper = over.dark ? "#000000" : "#ffffff"; a.tint = false; a.clear = false;
+      return computeAscii(img, false).lines;
+    } finally { Object.assign(a, keep); }
+  }
+  function isAsciiSafe(set) { return set === "classic" || (set === "custom" && /^[\x20-\x7e]+$/.test(s.ascii.custom)); }
+  function discordText(lines) {
+    return "```\n" + lines.map(function (l) { return l.replace(/`/g, "'").replace(/ +$/, ""); }).join("\n") + "\n```";
+  }
+  function twitchRows(w) {
+    var rows = linesFor({ set: "braille", cols: w, dark: s.share.dark });
+    return rows.map(function (r) { r = Array.from(r).slice(0, w).join(""); return s.share.twitchDots ? r.split(BLANK).join(FAINT) : r; });
+  }
+  function twitchText(rows) { return (s.share.twitchPad ? BLANK.repeat(s.share.twitchPad) + " " : "") + rows.join(" "); }
+  function rustRows() {
+    var rows = linesFor({ set: isAsciiSafe(s.ascii.set) ? null : "classic", cols: s.share.rustLen, dark: s.share.dark });
+    return rows.map(function (r) {
+      r = r.replace(/[^\x20-\x7e]/g, " ").replace(/ +$/, "");
+      return s.share.rustDots ? r.replace(/ /g, ".") : r;
+    }).filter(function (r, i, all) { return true; });
+  }
+  var share = { text: "", rows: null, next: 0 };
+  function cp(n) { return Array.from(n).length; }
+  function renderShare() {
+    if (!img) return;
+    var to = s.share.to, pv = $("sharePreview"), note = "", count = "", over = false;
+    document.querySelector('input[name=shareTo][value="' + to + '"]').checked = true;
+    document.querySelector('input[name=shareTheme][value="' + (s.share.dark ? "dark" : "light") + '"]').checked = true;
+    $("shareNitro").checked = s.share.nitro;
+    $("shareTwitchW").value = s.share.twitchW; $("shareTwitchWOut").textContent = s.share.twitchW + " across";
+    $("shareTwitchPad").value = s.share.twitchPad; $("shareTwitchPadOut").textContent = s.share.twitchPad;
+    $("shareTwitchDots").checked = s.share.twitchDots;
+    $("shareRustLen").value = s.share.rustLen; $("shareRustLenOut").textContent = s.share.rustLen;
+    $("shareRustDots").checked = s.share.rustDots;
+    $("optNitro").hidden = to !== "discord";
+    $("optTwitchW").hidden = $("optTwitchPad").hidden = $("optTwitchDots").hidden = to !== "twitch";
+    $("optRustLen").hidden = $("optRustDots").hidden = to !== "rust";
+    document.querySelector('input[name=shareTheme]').closest(".patterns").hidden = to === "plain";
+    $("shareFit").hidden = true; $("shareRestart").hidden = to !== "rust";
+    pv.className = "share-preview " + to + (s.share.dark ? "" : " light"); pv.innerHTML = "";
+    share.rows = null;
+    var who = document.createElement("span"); who.className = "who"; who.textContent = "you:";
+    if (to === "discord") {
+      var lim = s.share.nitro ? LIMITS.nitro : LIMITS.discord;
+      share.text = discordText(linesFor({ dark: s.share.dark }));
+      var n = cp(share.text); over = n > lim;
+      count = n.toLocaleString() + " / " + lim.toLocaleString() + " characters";
+      var head = document.createElement("div"); head.append(who);
+      var pre = document.createElement("pre"); pre.textContent = share.text.slice(4, -4);
+      pv.append(head, pre);
+      $("shareFit").hidden = !over;
+      note = over ? "Too long for one message. Fit to limit makes it narrower, or crop the image."
+                  : "Paste it as is: the ``` around it make Discord use a fixed-width font. On phones, art wider than about 40 characters may wrap.";
+    } else if (to === "twitch") {
+      var w = s.share.twitchW, rows = twitchRows(w);
+      share.text = twitchText(rows);
+      var n2 = cp(share.text); over = n2 > LIMITS.twitch;
+      count = n2 + " / 500 characters, " + rows.length + " rows";
+      var msg = document.createElement("div"); msg.className = "msg"; msg.append(who, document.createTextNode(" " + share.text));
+      pv.append(msg);
+      $("shareFit").hidden = !over;
+      note = over ? "Too long for one message: Fit to limit shrinks the art (narrower and shorter), or crop the image."
+                  : "Twitch only lines up Braille, so this is a Braille version of your art. Rows wrap one per line in the default-width chat; if rows pair up or break, change the width.";
+    } else if (to === "rust") {
+      share.rows = rustRows(); share.next = Math.min(share.next, share.rows.length);
+      share.rows.forEach(function (r, i) {
+        var m = document.createElement("div"); m.className = "msg" + (i === share.next ? " next" : "");
+        var wh = who.cloneNode(true); m.append(wh, document.createTextNode(" " + r)); pv.append(m);
+      });
+      var longest = share.rows.reduce(function (t, r) { return Math.max(t, r.length); }, 0);
+      count = share.rows.length + " messages, up to " + longest + " characters each";
+      note = "Rust chat takes one line at a time, so copy and send each row in turn (narrower art = fewer messages; servers may rate-limit fast chat). Its font isn't fixed-width, so expect some drift: bold, simple shapes survive best.";
+    } else {
+      share.text = asciiText();
+      var p2 = document.createElement("pre"); p2.textContent = share.text; pv.append(p2);
+      count = cp(share.text).toLocaleString() + " characters";
+      note = "Exactly what's in the preview, for anywhere with a fixed-width font.";
+    }
+    $("shareCount").textContent = count; $("shareCount").classList.toggle("over", over);
+    $("shareNote").textContent = note;
+    $("shareCopy").textContent = to === "rust" ? (share.next < share.rows.length ? "Copy row " + (share.next + 1) + " of " + share.rows.length : "All rows copied") : "Copy";
+    $("shareCopy").disabled = to === "rust" ? share.next >= share.rows.length : over;
+  }
+  function shareSet(k, v) { s.share[k] = v; save(); renderShare(); }
+  $("copyText").addEventListener("click", function () { if (!asciiOut) return; share.next = 0; renderShare(); $("shareDlg").showModal(); });
+  $("shareClose").addEventListener("click", function () { $("shareDlg").close(); });
+  $("shareDlg").addEventListener("click", function (e) { if (e.target === this) this.close(); });   // click outside
+  document.querySelectorAll("input[name=shareTo]").forEach(function (r) { r.addEventListener("change", function () { share.next = 0; shareSet("to", r.value); }); });
+  document.querySelectorAll("input[name=shareTheme]").forEach(function (r) { r.addEventListener("change", function () { shareSet("dark", r.value === "dark"); }); });
+  $("shareNitro").addEventListener("change", function () { shareSet("nitro", this.checked); });
+  $("shareTwitchW").addEventListener("input", function () { shareSet("twitchW", +this.value); });
+  $("shareTwitchPad").addEventListener("input", function () { shareSet("twitchPad", +this.value); });
+  $("shareTwitchDots").addEventListener("change", function () { shareSet("twitchDots", this.checked); });
+  $("shareRustLen").addEventListener("input", function () { share.next = 0; shareSet("rustLen", +this.value); });
+  $("shareRustDots").addEventListener("change", function () { shareSet("rustDots", this.checked); });
+  $("shareRestart").addEventListener("click", function () { share.next = 0; renderShare(); });
+  // Shrink until it fits: Discord narrows the art; Twitch narrows it (down to 20, below which rows
+  // start pairing up on one chat line).
+  $("shareFit").addEventListener("click", function () {
+    if (s.share.to === "discord") {
+      var lim = s.share.nitro ? LIMITS.nitro : LIMITS.discord, a = s.ascii, cols = a.cols;
+      while (cols > 10 && cp(discordText(linesFor({ cols: cols, dark: s.share.dark }))) > lim) cols -= 2;
+      a.cols = cols; syncControls(); save(); queue();
+    } else if (s.share.to === "twitch") {
+      var w = s.share.twitchW;
+      while (w > 20 && cp(twitchText(twitchRows(w))) > LIMITS.twitch) w--;
+      s.share.twitchW = w; save();
+    }
+    setTimeout(renderShare, 0);
+  });
+  $("shareCopy").addEventListener("click", function () {
+    var btn = this;
+    if (s.share.to === "rust") {
+      var r = share.rows[share.next]; share.next++;
+      copyString(r, btn, "Copied");
+      setTimeout(renderShare, 700);
+      return;
+    }
+    copyString(share.text, btn, "Copy");
   });
   $("exportTxt").addEventListener("click", function () {
     if (asciiOut) download(new Blob([asciiText()], { type: "text/plain;charset=utf-8" }), fileName + "-ascii.txt");

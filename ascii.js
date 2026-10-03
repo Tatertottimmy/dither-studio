@@ -126,13 +126,13 @@
     for (var cy = 0; cy < rows; cy++) {
       var row = "";
       for (var cx = 0; cx < cols; cx++) {
-        var mask = 0;
+        var dots = 0;                                   // (not "mask": that's the see-through mask)
         for (var dy = 0; dy < 4; dy++) for (var dx = 0; dx < 2; dx++) {
           var at = (cy * 4 + dy) * w + cx * 2 + dx;
           var on = bits[at] === (brightDense ? 1 : 0) && (!mask || mask[at]);
-          if (on) mask |= DOT[dy][dx];
+          if (on) dots |= DOT[dy][dx];
         }
-        row += String.fromCharCode(0x2800 + mask);
+        row += String.fromCharCode(0x2800 + dots);
       }
       lines.push(row);
     }
