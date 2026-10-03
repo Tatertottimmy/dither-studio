@@ -56,6 +56,7 @@
   .btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
   .btn.primary:hover { background: #fff; }
   .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.small { padding: 6px 14px; font-size: .82rem; }
 
   /* ---------- Layout ---------- */
   .studio {
@@ -551,6 +552,8 @@
       </div>
       <label class="visually-hidden" for="customRamp">Custom characters, lightest to densest</label>
       <input class="custom-ramp" id="customRamp" type="text" spellcheck="false" autocomplete="off" hidden placeholder="Lightest to densest, e.g.  .oO@">
+      <div class="slider" id="edgesRow" style="margin-top:16px"><label for="aedges">Edge lines</label><output id="aedgesOut" for="aedges"></output><input id="aedges" type="range" min="0" max="100" step="5"></div>
+      <p class="note" id="edgesNote" style="margin-top:6px">Draws outlines with _ \ | / like hand-made ASCII art. Higher finds fainter edges.</p>
     </div>
 
     <div class="group" id="patternGroup">
@@ -566,11 +569,17 @@
     </div>
 
     <div class="group" id="sliderGroup">
+      <div class="group-head">
+        <h3>Adjust</h3>
+        <button class="btn small" id="autoTone" type="button" disabled title="Set the tone sliders from this image">Auto</button>
+      </div>
+      <p class="note" id="autoNote" hidden></p>
       <div class="slider" id="colsRow"><label for="cols">Pixel density</label><output id="colsOut" for="cols"></output><input id="cols" type="range" min="32" max="1600" step="8"></div>
       <div class="slider" id="acolsRow" hidden><label for="acols">Characters across</label><output id="acolsOut" for="acols"></output><input id="acols" type="range" min="20" max="400" step="2"></div>
       <div class="slider"><label for="brightness">Brightness</label><output id="brightnessOut" for="brightness"></output><input id="brightness" type="range" min="-60" max="60" step="1"></div>
       <div class="slider"><label for="contrast">Contrast</label><output id="contrastOut" for="contrast"></output><input id="contrast" type="range" min="-80" max="100" step="1"></div>
       <div class="slider"><label for="gamma">Gamma</label><output id="gammaOut" for="gamma"></output><input id="gamma" type="range" min="0.3" max="2.5" step="0.05"></div>
+      <div class="slider"><label for="local">Local contrast</label><output id="localOut" for="local"></output><input id="local" type="range" min="0" max="2" step="0.1"></div>
       <div class="slider"><label for="sharpen">Sharpen</label><output id="sharpenOut" for="sharpen"></output><input id="sharpen" type="range" min="0" max="3" step="0.1"></div>
     </div>
 
@@ -609,13 +618,13 @@
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
-  var DEFAULTS = { colors: ["#2c2d30", "#d3d4d1"], algo: "floyd", cols: 480, brightness: 0, contrast: 10, gamma: 1, sharpen: 0.6,
+  var DEFAULTS = { colors: ["#2c2d30", "#d3d4d1"], algo: "floyd", cols: 480, brightness: 0, contrast: 10, gamma: 1, sharpen: 0.6, local: 0,
                    fade: { on: false, edge: "bottom", a: 0.62, b: 0.96, color: 0 },
                    mode: "dither",
                    alpha: { keep: true, edge: "dither" },
                    map: { mode: "tone", hue: 0 },
                    bands: { dither: null, ascii: null },
-                   ascii: { cols: 120, set: "classic", custom: " .oO@", inks: ["#e9ece8"], paper: "#111214", tint: false, clear: false } };
+                   ascii: { cols: 120, set: "classic", custom: " .oO@", inks: ["#e9ece8"], paper: "#111214", tint: false, clear: false, edges: 0 } };
   var KEY = "dither-settings";
   var s = Object.assign({}, DEFAULTS);
   var saved = {};
@@ -636,7 +645,7 @@
   delete s.ascii.ink;
   if (!Array.isArray(s.ascii.inks) || !s.ascii.inks.length) s.ascii.inks = DEFAULTS.ascii.inks.slice();
   if (s.mode !== "ascii") s.mode = "dither";
-  var asciiOut = null, asciiSampled = null, asciiKey = "", aspect = 0.6;   // aspect = char width / line height
+  var asciiOut = null, asciiSampled = null, asciiKey = "", aspect = 0.6, edgeSmp = null;   // aspect = char width / line height
 
   var source = null;   // full-res pixels of the original, for the eyedropper
   // Crop: the part of the DITHERED result to keep, as fractions of the whole ({x, y, w, h} in 0..1),
@@ -794,7 +803,8 @@
     brightness: function (v) { return (v > 0 ? "+" : "") + v; },
     contrast: function (v) { return (v > 0 ? "+" : "") + v; },
     gamma: function (v) { return (+v).toFixed(2); },
-    sharpen: function (v) { return (+v).toFixed(1); }
+    sharpen: function (v) { return (+v).toFixed(1); },
+    local: function (v) { return v > 0 ? (+v).toFixed(1) : "Off"; }
   };
   Object.keys(fmt).forEach(function (k) {
     var inp = $(k);
@@ -988,7 +998,7 @@
   // Reset only the sliders; colours and pattern stay as they are.
   $("reset").addEventListener("click", function () {
     Object.keys(fmt).forEach(function (k) { s[k] = DEFAULTS[k]; });
-    s.ascii.cols = DEFAULTS.ascii.cols;
+    s.ascii.cols = DEFAULTS.ascii.cols; s.ascii.edges = DEFAULTS.ascii.edges;
     syncControls(); save(); queue();
   });
 
@@ -1246,6 +1256,13 @@
     var L = DitherCore.adjust(toneSource(smp), s), dense = Ascii.brightIsDense(a.inks, a.paper);
     var mask = s.alpha.keep && smp.hasAlpha ? DitherCore.alphaMask(smp.A, smp.w, smp.h, s.alpha.edge) : null;
     var lines = braille ? Ascii.toBraille(L, smp.w, smp.h, s.algo, dense, mask) : Ascii.toLines(L, smp.w, smp.h, ramp(), s.algo, dense, mask);
+    if (a.edges > 0 && !braille) {                       // outline characters, found at up to 4x4 samples per cell
+      var S = Math.max(1, Math.min(4, Math.floor(iw / cols), Math.floor(ih / rows))), hi;
+      if (live && edgeSmp && edgeSmp.base === smp && edgeSmp.S === S) hi = edgeSmp.hi;
+      else { hi = DitherCore.sample(src, cols * S, rows * S); if (live) edgeSmp = { base: smp, S: S, hi: hi }; }
+      lines = Ascii.edgeLines(lines, DitherCore.adjust(toneSource(hi), s), hi.w, hi.h, smp.w, smp.h, a.edges / 100, mask,
+                              s.alpha.keep && hi.hasAlpha ? hi.A : null);
+    }
     var nc = lines[0] ? lines[0].length : 0, colors = null;
     if (a.tint) colors = Ascii.cellColors(smp, nc, lines.length, dense);
     else if (a.inks.length > 1) {                          // which text colour each character gets
@@ -1283,6 +1300,8 @@
     var r = document.querySelector('input[name=charset][value="' + a.set + '"]'); if (r) r.checked = true;
     $("customRamp").hidden = a.set !== "custom"; $("customRamp").value = a.custom;
     $("asciiTint").checked = a.tint;
+    $("aedges").value = a.edges; $("aedgesOut").textContent = a.edges ? a.edges + "%" : "Off";
+    $("edgesRow").hidden = $("edgesNote").hidden = a.set === "braille";   // Braille dots draw their own detail
     var pb = $("asciiPaper"); pb.style.setProperty("--c", a.paper);
     pb.setAttribute("aria-label", "Background colour, " + a.paper); $("asciiPaperHex").textContent = a.paper;
     var box = $("asciiInks"), n = a.inks.length;
@@ -1330,6 +1349,7 @@
       : (s.ascii.tint ? "Turn off the photo tint to use these." : "Add a second text colour to use these (+ next to Colours).");
     $("bandsWrap").hidden = s.map.mode !== "tone" || n < 2 || !usable;
     $("pickColors").disabled = !img || (!!pre && !ascii);
+    $("autoTone").disabled = !img || (!!pre && !ascii);     // already-dithered art ignores the tone sliders
     if ($("bandsWrap").hidden) return;
     var st = stopsFor(n, key), box = $("bands"), edges = [0].concat(st, [1]);
     box.innerHTML = "";
@@ -1477,6 +1497,33 @@
     $("hueAlign").disabled = hueColors().length < 2;
   }
   $("hueAlign").addEventListener("click", function () { var f = lineUp(hueColors(), true); setHueColors(f.colors, f.hue); });
+
+  $("aedges").addEventListener("input", function () { s.ascii.edges = +this.value; $("aedgesOut").textContent = s.ascii.edges ? s.ascii.edges + "%" : "Off"; save(); queue(); });
+
+  // ---- Auto: set the tone sliders from the image itself ----
+  // Stretch the middle 96% of its tones to fill the range, centre them, put the median at mid-grey,
+  // and add local contrast. ASCII also gets edge lines and a pattern that keeps shapes clean.
+  $("autoTone").addEventListener("click", function () {
+    if (!img) return;
+    var ascii = s.mode === "ascii", st = DitherCore.toneStats(toneSource(DitherCore.sample(img, 240)));
+    if (!st) return;
+    var span = Math.max(0.05, st.hi - st.lo), c = Math.min(3, Math.max(0.2, 0.92 / span));
+    s.contrast = Math.round(c >= 1 ? (c - 1) * 50 : (c - 1) * 100);
+    c = s.contrast >= 0 ? 1 + s.contrast / 50 : 1 + s.contrast / 100;              // what the slider will really do
+    s.brightness = Math.round(Math.max(-60, Math.min(60, (0.5 - (st.lo + st.hi) / 2) * 100)));
+    var m = Math.min(0.95, Math.max(0.05, (st.mid + s.brightness / 100 - 0.5) * c + 0.5));
+    s.gamma = Math.round(Math.min(2.5, Math.max(0.3, Math.log(m) / Math.log(0.5))) * 20) / 20;
+    s.local = ascii ? 0.8 : 0.4;
+    s.sharpen = ascii ? 0.8 : 0.6;
+    var did = [];
+    if (ascii) {
+      if (s.algo === "floyd" || s.algo === "atkinson") { s.algo = "bayer4"; did.push("pattern \u2192 Bayer 4"); }
+      if (s.ascii.set !== "braille" && s.ascii.set !== "blocks" && !s.ascii.edges) { s.ascii.edges = 50; did.push("edge lines on"); }
+    }
+    syncControls(); save(); queue();
+    $("autoNote").textContent = "Set from this image" + (did.length ? " (" + did.join(", ") + ")" : "") + ". Fine-tune from here, or Reset sliders to undo.";
+    $("autoNote").hidden = false;
+  });
 
   // Pick the colours that best represent the photo (keeps your colour count), and switch to
   // nearest-colour mapping, which is what makes them look like the photo.
@@ -1737,6 +1784,7 @@
     if (bgJob) bgJob.cancelled = true;
     bgJob = null; crop = null; cutout = null; bgOff = false;
     setZoom(1);
+    $("autoNote").hidden = true;
     $("cropBtn").textContent = "Crop"; $("cropBtn").setAttribute("aria-pressed", "false"); bgLabel();
   }
   function sourceChanged() {

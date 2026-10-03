@@ -55,6 +55,69 @@
     return lines;
   }
 
+  // Edge lines: classic hand-drawn ASCII outlines shapes with _ \ | / rather than only shading
+  // them. L is the tone image at several samples per character (w x h covering cols x rows
+  // cells). Sobel finds edges and their direction; a cell that's crossed by a clear edge in
+  // one main direction gets that edge's character. strength 0..1: higher finds fainter edges.
+  var EDGE_CHARS = ["_", "\\", "|", "/"];                 // edge running: across, down-right, down, up-right
+  // A (optional, 0..1 opacity at the same size) also outlines see-through edges, e.g. a cut-out subject.
+  function edgeLines(lines, L, w, h, cols, rows, strength, mask, A) {
+    var sx = w / cols, sy = h / rows;
+    if (sx >= 2) {                                          // smooth fine texture first, keep outlines
+      L = DitherCore.blur(L, w, h, Math.max(1, Math.round(sx / 3)));
+      if (A) A = DitherCore.blur(A, w, h, Math.max(1, Math.round(sx / 3)));
+    }
+    var mag = new Float32Array(w * h), ang = new Uint8Array(w * h), isA = new Uint8Array(w * h), vals = [];
+    for (var y = 1; y < h - 1; y++) for (var x = 1; x < w - 1; x++) {
+      var p = y * w + x;
+      var gx = L[p - w + 1] + 2 * L[p + 1] + L[p + w + 1] - L[p - w - 1] - 2 * L[p - 1] - L[p + w - 1];
+      var gy = L[p + w - 1] + 2 * L[p + w] + L[p + w + 1] - L[p - w - 1] - 2 * L[p - w] - L[p - w + 1];
+      var m = Math.sqrt(gx * gx + gy * gy);
+      if (A) {                                              // a see-through boundary always counts as an outline
+        var ax = A[p - w + 1] + 2 * A[p + 1] + A[p + w + 1] - A[p - w - 1] - 2 * A[p - 1] - A[p + w - 1];
+        var ay = A[p + w - 1] + 2 * A[p + w] + A[p + w + 1] - A[p - w - 1] - 2 * A[p - w] - A[p - w + 1];
+        if (Math.sqrt(ax * ax + ay * ay) > 0.5) { gx = ax; gy = ay; m = 1; isA[p] = 1; }
+      }
+      mag[p] = m;
+      if (m > 0.02 && !isA[p]) vals.push(m);
+      var phi = Math.atan2(gy, gx) + Math.PI / 2;           // the edge runs across the gradient
+      phi = ((phi % Math.PI) + Math.PI) % Math.PI;
+      ang[p] = Math.round(phi / (Math.PI / 4)) % 4;
+    }
+    vals.sort(function (a, b) { return a - b; });
+    var strong = vals.length ? vals[Math.floor(vals.length * 0.98)] : 1e9, T = Math.max(0.1, strong * (1 - 0.7 * strength));
+    var need = Math.max(1, sx * sy * 0.22), pick = new Int8Array(cols * rows).fill(-1);
+    lines.forEach(function (line, cy) {
+      for (var cx = 0; cx < cols; cx++) {
+        if (mask && !mask[cy * cols + cx]) continue;          // see-through stays empty
+        var bins = [0, 0, 0, 0], n = 0;
+        for (var y = Math.floor(cy * sy); y < Math.floor((cy + 1) * sy); y++)
+          for (var x = Math.floor(cx * sx); x < Math.floor((cx + 1) * sx); x++) {
+            var q = y * w + x; if (mag[q] < T && !isA[q]) continue;
+            bins[ang[q]] += mag[q]; n++;
+          }
+        if (n < need) continue;
+        var best = 0, tot = bins[0] + bins[1] + bins[2] + bins[3];
+        for (var b = 1; b < 4; b++) if (bins[b] > bins[best]) best = b;
+        if (bins[best] >= 0.55 * tot) pick[cy * cols + cx] = best;   // one clear direction only
+      }
+    });
+    // Keep only edges that join up with a neighbour: lone ones are texture, not outlines.
+    return lines.map(function (line, cy) {
+      var chars = Array.from(line);
+      for (var cx = 0; cx < chars.length; cx++) {
+        var b = pick[cy * cols + cx]; if (b < 0) continue;
+        var linked = false;
+        for (var dy = -1; dy <= 1 && !linked; dy++) for (var dx = -1; dx <= 1; dx++) {
+          var yy = cy + dy, xx = cx + dx;
+          if ((dx || dy) && yy >= 0 && yy < rows && xx >= 0 && xx < cols && pick[yy * cols + xx] >= 0) { linked = true; break; }
+        }
+        if (linked) chars[cx] = EDGE_CHARS[b];
+      }
+      return chars.join("");
+    });
+  }
+
   // Braille: each character is a 2x4 block of dots (U+2800 + bit mask), so L is sampled at
   // 2x the columns and 4x the rows and dithered to on/off dots.
   var DOT = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]];   // [row][col]
@@ -209,6 +272,6 @@
       body + "</g></svg>";
   }
 
-  window.Ascii = { SETS: SETS, THEMES: THEMES, sortByLum: sortByLum, cellLum: cellLum, cellRGB: cellRGB, colorsFromIdx: colorsFromIdx, bandColors: bandColors, brightIsDense: brightIsDense, toLines: toLines, toBraille: toBraille,
+  window.Ascii = { edgeLines: edgeLines, SETS: SETS, THEMES: THEMES, sortByLum: sortByLum, cellLum: cellLum, cellRGB: cellRGB, colorsFromIdx: colorsFromIdx, bandColors: bandColors, brightIsDense: brightIsDense, toLines: toLines, toBraille: toBraille,
                    cellColors: cellColors, cellAspect: cellAspect, paint: paint, toSVG: toSVG, FONT: FONT };
 })();

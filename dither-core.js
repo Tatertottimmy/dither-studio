@@ -59,6 +59,10 @@
       v = Math.min(1, Math.max(0, v));
       L[i] = Math.pow(v, 1 / o.gamma);
     }
+    if (o.local > 0) {                                      // local contrast: push each tone away from its surroundings
+      var B = blur(L, w, h, Math.max(2, Math.round(Math.max(w, h) / 20)));
+      for (var j = 0; j < L.length; j++) L[j] = Math.min(1, Math.max(0, L[j] + o.local * (L[j] - B[j])));
+    }
     if (o.sharpen > 0) {
       var out = new Float32Array(L.length);
       for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
@@ -73,6 +77,41 @@
       L = out;
     }
     return L;
+  }
+
+  // Box blur, run twice (close to a Gaussian), radius r, separable running sums.
+  function blur(src, w, h, r) {
+    var a = Float32Array.from(src), t = new Float32Array(a.length);
+    for (var pass = 0; pass < 2; pass++) {
+      for (var y = 0; y < h; y++) {                         // horizontal
+        var sum = 0, row = y * w;
+        for (var x = -r; x <= r; x++) sum += a[row + Math.min(w - 1, Math.max(0, x))];
+        for (var x2 = 0; x2 < w; x2++) {
+          t[row + x2] = sum / (2 * r + 1);
+          sum += a[row + Math.min(w - 1, x2 + r + 1)] - a[row + Math.max(0, x2 - r)];
+        }
+      }
+      for (var x3 = 0; x3 < w; x3++) {                      // vertical
+        var sum2 = 0;
+        for (var y2 = -r; y2 <= r; y2++) sum2 += t[Math.min(h - 1, Math.max(0, y2)) * w + x3];
+        for (var y3 = 0; y3 < h; y3++) {
+          a[y3 * w + x3] = sum2 / (2 * r + 1);
+          sum2 += t[Math.min(h - 1, y3 + r + 1) * w + x3] - t[Math.max(0, y3 - r) * w + x3];
+        }
+      }
+    }
+    return a;
+  }
+
+  // Tone percentiles of a sample (see-through pixels ignored), for auto-adjust.
+  function toneStats(smp) {
+    var hist = new Uint32Array(256), n = 0;
+    for (var i = 0; i < smp.L.length; i++) {
+      if (smp.A && smp.A[i] < 0.5) continue;
+      hist[Math.min(255, Math.max(0, Math.round(smp.L[i] * 255)))]++; n++;
+    }
+    function pct(q) { var t = q * n, c = 0; for (var k = 0; k < 256; k++) { c += hist[k]; if (c >= t) return k / 255; } return 1; }
+    return n ? { lo: pct(0.02), mid: pct(0.5), hi: pct(0.98) } : null;
   }
 
   // Dither luminance to `levels` evenly spaced tones (2-4).
@@ -256,6 +295,14 @@
       v = Math.min(1, Math.max(0, (v - 0.5) * c + 0.5));
       F[i] = Math.pow(v, 1 / o.gamma);
     }
+    if (o.local > 0) {                                      // local contrast, per channel
+      var r = Math.max(2, Math.round(Math.max(smp.w, smp.h) / 20)), C = new Float32Array(n);
+      for (var chl = 0; chl < 3; chl++) {
+        for (var k = 0; k < n; k++) C[k] = F[k * 3 + chl];
+        var Bc = blur(C, smp.w, smp.h, r);
+        for (var k2 = 0; k2 < n; k2++) F[k2 * 3 + chl] = Math.min(1, Math.max(0, C[k2] + o.local * (C[k2] - Bc[k2])));
+      }
+    }
     if (o.sharpen > 0) {
       var w = smp.w, h = smp.h, G = new Float32Array(F.length);
       for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) for (var ch = 0; ch < 3; ch++) {
@@ -359,7 +406,7 @@
     return hex.sort(function (a, b) { return lum(a) - lum(b); });
   }
 
-  window.DitherCore = { sample: sample, adjust: adjust, dither: dither, paint: paint, toSVG: toSVG, fade: fade, readPredithered: readPredithered,
+  window.DitherCore = { blur: blur, toneStats: toneStats, sample: sample, adjust: adjust, dither: dither, paint: paint, toSVG: toSVG, fade: fade, readPredithered: readPredithered,
                          CLEAR: CLEAR, alphaMask: alphaMask, applyMask: applyMask,
                          defaultStops: defaultStops, toneRemap: toneRemap, adjustRGB: adjustRGB, ditherMatch: ditherMatch,
                          hueValue: hueValue, pickColors: pickColors };

@@ -10,7 +10,8 @@ Everything runs locally in your browser. Photos are never uploaded anywhere. (Ba
 - **Load a photo or an animated GIF** by dragging it onto the page, pasting it, or choosing a file.
 - **Animated GIFs** play in the preview while you adjust anything, with a play/pause button and frame counter, and export as an animated GIF in either mode (original frame timing, scale 1x to 8x). Frames are decoded and encoded by the app itself, so this works in every browser, including Firefox.
 - **Dither patterns:** Floyd-Steinberg, Atkinson, Bayer 2x2 / 4x4 / 8x8 (ordered), or plain threshold.
-- **Tone controls:** pixel density (dots across), brightness, contrast, gamma and sharpen, with a live preview. Scroll over any slider to nudge it (Shift for bigger steps).
+- **Tone controls:** pixel density (dots across), brightness, contrast, gamma, local contrast (pulls out detail relative to its surroundings) and sharpen, with a live preview.
+- **Auto:** sets the tone sliders from the image itself, stretching its tones to the full range and centring them. In ASCII mode it also adds local contrast, switches error-diffusion patterns to Bayer 4 (cleaner character shapes) and turns on edge lines. Scroll over any slider to nudge it (Shift for bigger steps).
 - **Any number of colours** (2 up to 255, the most a GIF can hold), ordered darkest to lightest. The + button adds a colour in the biggest gap of your palette, and the swatches wrap onto more rows as you add them. Each colour takes an equal band of the image's tones, with dithered blends in between.
 - **Apply colours by:**
   - **Brightness:** each colour takes a band of tones, shown as a bar with draggable handles so you decide where each colour starts.
@@ -28,6 +29,7 @@ Everything runs locally in your browser. Photos are never uploaded anywhere. (Ba
 - **Export** as SVG (runs of same-colour pixels are merged into single shapes, so it stays sharp at any size) or PNG at 1x to 8x.
 - **ASCII mode:** turn the photo into text art.
   - Character sets: Classic (` .:-=+*#%@`), Detailed (a 70-character ramp), Blocks (` ░▒▓█`), Braille (each character is a 2x4 grid of dots, for about 8x the detail), or your own custom ramp.
+  - **Edge lines:** outlines are drawn with `_ \ | /` along their real direction, the way hand-made ASCII art does, instead of only shading. Found at up to 4x4 samples per character, with fine texture smoothed out and lone strokes dropped; cut-out subjects get outlined along their see-through edge.
   - The dither patterns choose which character goes where, so shading stays smooth instead of banding.
   - A background colour plus any number of text colours: each text colour takes a band of tones (shadows, midtones, highlights), dithered between neighbours so it blends instead of banding. Or tint every character with the photo's own colour instead.
   - Export: copy to clipboard, `.txt`, SVG (real text, each line pinned to an exact width so the grid lines up in any monospace font) or PNG.
