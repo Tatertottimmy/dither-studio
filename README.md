@@ -32,6 +32,10 @@ Everything runs locally in your browser. Photos are never uploaded anywhere. (Ba
   - **Edge lines:** outlines are drawn with `_ \ | /` along their real direction, the way hand-made ASCII art does, instead of only shading. Found at up to 4x4 samples per character, with fine texture smoothed out and lone strokes dropped; cut-out subjects get outlined along their see-through edge.
   - The dither patterns choose which character goes where, so shading stays smooth instead of banding.
   - A background colour plus any number of text colours: each text colour takes a band of tones (shadows, midtones, highlights), dithered between neighbours so it blends instead of banding. Or tint every character with the photo's own colour instead.
+  - **Animated text (from an animated GIF):** export the animation as a small program that redraws the text itself, frame by frame with the GIF's timing, colours included. Frames are gzipped inside the file, so a 44-frame animation is about 25 KB.
+    - **Web page (.html):** opens in any browser, scales to the window, click or Space to pause (starts paused for people who prefer reduced motion).
+    - **Terminal, Python (.py):** `python3 file.py` on Windows, Mac or Linux; needs only Python 3. Redraws in place with true-colour codes, tells you if the terminal is too small, and Ctrl+C restores the terminal.
+    - **Terminal, shell (.sh):** `bash file.sh` on Mac or Linux, no Python needed.
   - **Copy for Discord, Twitch or Rust,** with a preview styled like each chat and a character count against its limit, plus a dark/light chat switch:
     - **Discord:** wrapped in a ``` code block (fixed-width font), checked against 2,000 characters (4,000 with Nitro), with Fit to limit.
     - **Twitch:** chat is one line, 500 characters, in a proportional font, so this is a Braille version of the art, rows joined by spaces and sized so the default-width chat wraps one row per line. Adjustable width and space after your name; faint dots in empty cells keep rows lined up; Fit to limit.

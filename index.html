@@ -94,6 +94,8 @@
   .share-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .share-foot .count { margin-right: auto; font-family: var(--mono); font-size: .82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .share-foot .count.over { color: #ff7b72; }
+  .share-check { display: flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--muted); }
+  #animHow code { font-family: var(--mono); color: var(--text); background: var(--bg); padding: 2px 6px; border-radius: 6px; }
 
   /* ---------- Layout ---------- */
   .studio {
@@ -441,6 +443,7 @@
   <h1>Dither</h1>
   <button class="btn" id="copyText" type="button" hidden disabled aria-haspopup="dialog">Copy text&hellip;</button>
   <button class="btn" id="exportTxt" type="button" hidden disabled>TXT</button>
+  <button class="btn" id="exportAnim" type="button" hidden aria-haspopup="dialog">Animated text&hellip;</button>
   <button class="btn" id="exportGif" type="button" hidden>GIF</button>
   <button class="btn" id="exportPng" type="button" disabled>PNG</button>
   <button class="btn primary" id="exportSvg" type="button" disabled>Export SVG</button>
@@ -646,6 +649,27 @@
     </div>
   </aside>
 </main>
+
+<dialog class="share" id="animDlg" aria-labelledby="animHead">
+  <div class="share-inner">
+    <div class="share-top">
+      <h2 id="animHead">Animated text</h2>
+      <button class="link" id="animClose" type="button">Close</button>
+    </div>
+    <p class="note">The animation as a little program that draws the text itself, frame by frame, with the GIF's timing. No video inside.</p>
+    <div class="patterns" role="radiogroup" aria-label="Kind of program">
+      <label><input type="radio" name="animFmt" value="html" checked><span>Web page (.html)</span></label>
+      <label><input type="radio" name="animFmt" value="py"><span>Terminal: Python (.py)</span></label>
+      <label><input type="radio" name="animFmt" value="sh"><span>Terminal: shell (.sh)</span></label>
+    </div>
+    <label class="check share-check"><input type="checkbox" id="animColour" checked> Keep the colours</label>
+    <p class="note" id="animHow"></p>
+    <div class="share-foot">
+      <span class="count" id="animInfo" aria-live="polite"></span>
+      <button class="btn primary" id="animGo" type="button">Download</button>
+    </div>
+  </div>
+</dialog>
 
 <dialog class="share" id="shareDlg" aria-labelledby="shareHead">
   <div class="share-inner">
@@ -1095,12 +1119,13 @@
       stage.classList.add("has-image");
       $("exportSvg").disabled = $("exportPng").disabled = $("copyText").disabled = $("exportTxt").disabled = false;
       $("exportGif").hidden = false; $("replace").hidden = false;
+      $("exportAnim").hidden = s.mode !== "ascii";
       render();
       if (g.truncated) $("info").textContent += " (long GIF: using the first " + g.frames.length + " frames)";
       if (anim.playing) anim.timer = setTimeout(nextFrame, anim.frames[0].delay);
     }, function () { $("info").textContent = "Couldn't read that GIF. Try another file."; });
   }
-  function stopAnim() { if (anim) clearTimeout(anim.timer); anim = null; $("exportGif").hidden = true; $("playBtn").hidden = true; }
+  function stopAnim() { if (anim) clearTimeout(anim.timer); anim = null; $("exportGif").hidden = $("exportAnim").hidden = true; $("playBtn").hidden = true; }
   function showFrame(i) {
     anim.i = (i + anim.frames.length) % anim.frames.length;
     img = frameSrc(anim.i); sampled = null; source = null; asciiKey = "";
@@ -1631,6 +1656,7 @@
     $("ditherColors").hidden = ascii; $("asciiColors").hidden = !ascii; $("charGroup").hidden = !ascii;
     $("colsRow").hidden = ascii; $("acolsRow").hidden = !ascii; $("fadeGroup").hidden = ascii;
     $("copyText").hidden = $("exportTxt").hidden = !ascii;
+    $("exportAnim").hidden = !ascii || !anim;
     $("exportSvg").textContent = "Export SVG";
     // the "already dithered" lock only applies to Dither mode
     var lock = !!pre && !ascii;
@@ -1714,6 +1740,182 @@
       try { done(document.execCommand("copy")); } catch (e) { done(false); } ta.remove();
     }
   }
+
+  // ---- Animated text: the GIF as a program that redraws the text itself ----
+  // Every frame goes through the current ASCII settings. Frames are gzipped + base64'd into the
+  // file; the players unpack them and redraw in place (terminals: cursor home + ANSI colours).
+  var ANIM_HOW = {
+    html: "Opens in any browser. The art scales to the window; click or press Space to pause.",
+    py: "Run it in a terminal: <code>python3 NAME.py</code> (Windows: <code>py NAME.py</code>). Ctrl+C stops it. Needs Python 3, nothing else.",
+    sh: "Mac and Linux: <code>bash NAME.sh</code> in a terminal. Ctrl+C stops it. Needs no Python."
+  };
+  function animFmt() { return document.querySelector("input[name=animFmt]:checked").value; }
+  function syncAnimDlg() {
+    var name = fileName.replace(/[^\w.-]+/g, "_") + "-ascii";
+    $("animHow").innerHTML = ANIM_HOW[animFmt()].replace(/NAME/g, name);
+    var multi = s.ascii.tint || s.ascii.inks.length > 1;
+    $("animColour").closest("label").hidden = false;
+    $("animInfo").textContent = anim ? anim.frames.length + " frames" + (multi ? ", multi-colour" : "") : "";
+  }
+  document.querySelectorAll("input[name=animFmt]").forEach(function (r) { r.addEventListener("change", syncAnimDlg); });
+  $("exportAnim").addEventListener("click", function () { if (!anim) return; syncAnimDlg(); $("animGo").textContent = "Download"; $("animDlg").showModal(); });
+  $("animClose").addEventListener("click", function () { $("animDlg").close(); });
+  $("animDlg").addEventListener("click", function (e) { if (e.target === this) this.close(); });
+
+  function rgbOf(h) { var v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; }
+  // Per-character colours of one frame as runs: [[hex, text], ...] per line.
+  function frameRuns(res, colour) {
+    var ink = s.ascii.inks[0];
+    return res.lines.map(function (line, y) {
+      var chars = Array.from(line), runs = [], nc = chars.length;
+      chars.forEach(function (ch, x) {
+        var c = ink;
+        if (colour && res.colors) {
+          var o = (y * nc + x) * 3;
+          c = "#" + [res.colors[o], res.colors[o + 1], res.colors[o + 2]].map(function (v) { return v.toString(16).padStart(2, "0"); }).join("");
+        }
+        if (ch === " " && runs.length) { runs[runs.length - 1][1] += ch; return; }   // spaces don't need a colour
+        if (runs.length && runs[runs.length - 1][0] === c) runs[runs.length - 1][1] += ch;
+        else runs.push([c, ch]);
+      });
+      return runs;
+    });
+  }
+  function ansiFrame(runs) {
+    var bg = s.ascii.clear ? "" : "\x1b[48;2;" + rgbOf(s.ascii.paper).join(";") + "m";
+    return runs.map(function (line) {
+      return bg + line.map(function (r) { return "\x1b[38;2;" + rgbOf(r[0]).join(";") + "m" + r[1]; }).join("") + "\x1b[0m";
+    }).join("\n");
+  }
+  function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function htmlFrame(runs) {
+    return runs.map(function (line) {
+      return line.map(function (r) { return '<i style="color:' + r[0] + '">' + esc(r[1]) + "</i>"; }).join("");
+    }).join("\n");
+  }
+  async function gzip64(text) {
+    var stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+    var bytes = new Uint8Array(await new Response(stream).arrayBuffer()), bin = "";
+    for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  function playerHTML(title, data, delays, w, h) {
+    var bg = s.ascii.clear ? "#0e0f10" : s.ascii.paper;
+    return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+      "<title>" + esc(title) + "</title>\n<style>\n" +
+      "  html, body { margin: 0; height: 100%; background: " + bg + "; }\n" +
+      "  body { display: grid; place-items: center; overflow: hidden; cursor: pointer; }\n" +
+      '  pre { margin: 0; font: 10px/1 ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", Menlo, monospace; white-space: pre; }\n' +
+      "  pre i { font-style: normal; }\n" +
+      "  #msg { position: fixed; left: 0; right: 0; bottom: 14px; text-align: center; font: 13px system-ui, sans-serif; color: #8a8d88; }\n" +
+      "</style>\n</head>\n<body>\n" +
+      '<pre id="art" role="img" aria-label="' + esc(title) + ', animated ASCII art"></pre>\n<div id="msg" aria-live="polite"></div>\n' +
+      "<script>\n// Animated ASCII art made with Dither Studio. Frames are gzipped + base64 below.\n" +
+      'const DATA = "' + data + '";\nconst DELAYS = ' + JSON.stringify(delays) + ";\nconst COLS = " + w + ", ROWS = " + h + ";\n" +
+      "(async () => {\n" +
+      "  const bytes = Uint8Array.from(atob(DATA), c => c.charCodeAt(0));\n" +
+      '  const frames = JSON.parse(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text());\n' +
+      '  const art = document.getElementById("art"), msg = document.getElementById("msg");\n' +
+      "  function fit() {             // measure the art at 10px, then scale it to fill the window\n" +
+      '    art.style.fontSize = "10px";\n' +
+      "    const r = art.getBoundingClientRect();\n" +
+      "    const k = Math.min(innerWidth * 0.96 / r.width, innerHeight * 0.96 / r.height);\n" +
+      '    art.style.fontSize = 10 * k + "px";\n  }\n' +
+      "  let i = 0, timer = null;\n" +
+      "  const show = () => { art.innerHTML = frames[i]; };\n" +
+      "  const tick = () => { show(); const d = DELAYS[i]; i = (i + 1) % frames.length; timer = setTimeout(tick, d); };\n" +
+      '  const toggle = () => { if (timer) { clearTimeout(timer); timer = null; msg.textContent = "Paused. Click or press Space to play."; } else { msg.textContent = ""; tick(); } };\n' +
+      '  addEventListener("click", toggle);\n  addEventListener("keydown", e => { if (e.key === " ") { e.preventDefault(); toggle(); } });\n' +
+      '  addEventListener("resize", fit); show(); fit();\n' +
+      '  if (matchMedia("(prefers-reduced-motion: reduce)").matches) msg.textContent = "Click or press Space to play.";\n  else tick();\n' +
+      "})();\n</" + "script>\n</body>\n</html>\n";
+  }
+  function playerPython(title, data, w, h) {
+    return "#!/usr/bin/env python3\n" +
+      '"""' + title.replace(/"""/g, "") + ": animated ASCII art, made with Dither Studio.\n\n" +
+      "Run it in a terminal:  python3 " + title.replace(/[^\w.-]+/g, "_") + ".py   (Ctrl+C to stop)\n" +
+      'Needs Python 3 and nothing else. Make the terminal at least ' + w + " x " + h + ' characters.\n"""\n' +
+      "import base64, gzip, json, os, shutil, sys, time\n\n" +
+      "W, H = " + w + ", " + h + "\n" +
+      'DATA = "' + data + '"\n\n\n' +
+      "def main():\n" +
+      '    anim = json.loads(gzip.decompress(base64.b64decode(DATA)).decode("utf-8"))\n' +
+      '    frames, delays = anim["frames"], anim["delays"]\n' +
+      '    if os.name == "nt":\n        os.system("")  # turn on colour and cursor codes in the Windows console\n' +
+      "    try:\n        sys.stdout.reconfigure(encoding=\"utf-8\")\n    except Exception:\n        pass\n" +
+      "    out, warned = sys.stdout, False\n" +
+      "    try:\n" +
+      '        out.write("\\x1b[?25l\\x1b[2J")  # hide the cursor, clear the screen\n' +
+      "        while True:\n" +
+      "            for frame, delay in zip(frames, delays):\n" +
+      "                cols, rows = shutil.get_terminal_size((W, H))\n" +
+      "                if cols < W or rows < H:\n" +
+      '                    out.write("\\x1b[0m\\x1b[H\\x1b[2JMake the terminal at least %d x %d characters (it is %d x %d)." % (W, H, cols, rows))\n' +
+      "                    out.flush(); warned = True; time.sleep(0.3); continue\n" +
+      "                if warned:\n" +
+      '                    out.write("\\x1b[2J"); warned = False\n' +
+      '                out.write("\\x1b[H" + frame)  # cursor home, then draw over the last frame\n' +
+      "                out.flush()\n" +
+      "                time.sleep(delay / 1000)\n" +
+      "    except KeyboardInterrupt:\n        pass\n" +
+      "    finally:\n" +
+      '        out.write("\\x1b[0m\\x1b[?25h\\n")  # reset colours, show the cursor\n' +
+      "        out.flush()\n\n\nmain()\n";
+  }
+  function playerShell(title, data, w, h) {
+    return "#!/usr/bin/env bash\n" +
+      "# " + title.replace(/\n/g, " ") + ": animated ASCII art, made with Dither Studio.\n" +
+      "# Run it in a terminal (Mac or Linux):  bash " + title.replace(/[^\w.-]+/g, "_") + ".sh   (Ctrl+C to stop)\n" +
+      "# Frames are gzipped + base64 below: each is its delay in seconds, a newline, the frame, then \\036.\n" +
+      "W=" + w + "; H=" + h + "\n" +
+      "DATA='" + data + "'\n\n" +
+      "trap 'printf \"\\033[0m\\033[?25h\\n\"; exit 0' INT TERM\n" +
+      "printf '\\033[?25l\\033[2J'\n" +
+      "while :; do\n" +
+      '  if [ "$(tput cols)" -lt "$W" ] || [ "$(tput lines)" -lt "$H" ]; then\n' +
+      "    printf '\\033[0m\\033[H\\033[2JMake the terminal at least %d x %d characters.' \"$W\" \"$H\"; sleep 0.5; continue\n" +
+      "  fi\n" +
+      "  printf '%s' \"$DATA\" | base64 --decode | gunzip | while IFS= read -r -d $'\\036' f; do\n" +
+      "    printf '\\033[H%s' \"${f#*$'\\n'}\"   # cursor home, then draw over the last frame\n" +
+      "    sleep \"${f%%$'\\n'*}\"\n" +
+      "  done\n" +
+      "done\n";
+  }
+  $("animGo").addEventListener("click", async function () {
+    if (!anim) return;
+    var btn = this, fmt = animFmt(), colour = $("animColour").checked, n = anim.frames.length;
+    var runs = [], delays = [], w = 0, h = 0;
+    btn.disabled = true;
+    try {
+      for (var i = 0; i < n; i++) {
+        btn.textContent = "Frame " + (i + 1) + "/" + n + "\u2026";
+        await new Promise(function (r) { setTimeout(r, 0); });   // keep the page responsive
+        var res = computeAscii(frameSrc(i), false);
+        h = Math.max(h, res.lines.length);
+        res.lines.forEach(function (l) { w = Math.max(w, Array.from(l).length); });
+        runs.push(frameRuns(res, colour)); delays.push(Math.max(20, anim.frames[i].delay));
+      }
+      btn.textContent = "Packing\u2026";
+      var title = fileName, name = fileName.replace(/[^\w.-]+/g, "_") + "-ascii", blob;
+      if (fmt === "html") {
+        var data = await gzip64(JSON.stringify(runs.map(htmlFrame)));
+        blob = new Blob([playerHTML(title, data, delays, w, h)], { type: "text/html" });
+      } else if (fmt === "py") {
+        var dp = await gzip64(JSON.stringify({ frames: runs.map(ansiFrame), delays: delays }));
+        blob = new Blob([playerPython(name, dp, w, h)], { type: "text/x-python" });
+      } else {
+        var txt = runs.map(function (r, k) { return (delays[k] / 1000).toFixed(3) + "\n" + ansiFrame(r) + "\x1e"; }).join("");
+        blob = new Blob([playerShell(name, await gzip64(txt), w, h)], { type: "text/x-shellscript" });
+      }
+      download(blob, name + "." + fmt);
+      $("animInfo").textContent = n + " frames, " + w + " \u00d7 " + h + " characters, " + Math.max(1, Math.round(blob.size / 1024)) + " KB";
+      btn.textContent = "Download again";
+    } catch (err) {
+      $("animInfo").textContent = "Couldn't build it: " + err.message;
+      btn.textContent = "Download";
+    }
+    btn.disabled = false;
+  });
 
   // ---- Copy for Discord / Twitch / Rust ----
   // Each place shows text differently, so each gets its own version of the art:
